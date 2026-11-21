@@ -418,11 +418,14 @@ def build_flows(store: Store, registry: dict[str, DatasetSpec], now: datetime | 
 # ---------------------------------------------------------------- events (ENTSOG UMMs + GIE IIP)
 
 def _gwh_d(capacity: pd.Series, unit: pd.Series) -> pd.Series:
+    """Capacity in GWh/d from energy-rate units (kWh/d, MWh/h, GWh/d, ...). Volumes are left out."""
     u = unit.fillna("").str.lower().str.replace(" ", "")
     out = pd.Series(float("nan"), index=capacity.index)
     for prefix, div in (("kwh", 1e6), ("mwh", 1e3), ("gwh", 1.0)):
-        m = u.str.startswith(prefix) & (u.str.contains("/d") | u.str.contains("day") | u.str.endswith("d"))
-        out[m] = capacity[m] / div
+        daily = u.str.startswith(prefix) & (u.str.contains("/d") | u.str.contains("day") | u.str.endswith("d"))
+        hourly = u.str.startswith(prefix) & u.str.contains("/h")
+        out[daily] = capacity[daily] / div
+        out[hourly & ~daily] = capacity[hourly & ~daily] * 24 / div
     m = u.str.startswith("twh")
     out[m] = capacity[m] * 1e3
     return out
@@ -434,9 +437,15 @@ def build_events(store: Store, registry: dict[str, DatasetSpec], now: datetime |
     if "entsog_umm" in registry:
         u = store.read(registry["entsog_umm"], now - timedelta(days=400), now + timedelta(days=2))
         if not u.empty:
-            u = u.sort_values(["messageId", "versionNumber"]).drop_duplicates("messageId", keep="last")
+            # a thread = one event; each update is a new version (and usually a new messageId)
+            thread = u["threadId"].fillna(u["messageId"]) if "threadId" in u else u["messageId"]
+            u = u.assign(_thread=thread).sort_values(["_thread", "versionNumber", "publicationDateTime"])
+            u = u.drop_duplicates("_thread", keep="last")
+            if "isLatestVersion" in u:  # ENTSOG marks superseded versions explicitly
+                u = u[~u["isLatestVersion"].fillna("Yes").str.lower().isin(["no", "false", "0"])]
             frames.append(pd.DataFrame({
                 "source": "ENTSOG", "published": u["publicationDateTime"], "id": u["messageId"],
+                "message_type": u["messageType"],
                 "participant": u["marketParticipantName"], "asset": u["affectedAssetName"],
                 "zone": u["balancingZoneName"], "type": u["unavailabilityType"], "event": u["eventType"],
                 "status": u["eventStatus"], "start": u["eventStart"], "stop": u["eventStop"],
@@ -448,6 +457,7 @@ def build_events(store: Store, registry: dict[str, DatasetSpec], now: datetime |
         if not g.empty:
             frames.append(pd.DataFrame({
                 "source": "GIE IIP", "published": g["published"], "id": g["messageId"],
+                "message_type": g["messageType"],
                 "participant": g["reportingEntity"], "asset": g["asset"], "zone": g["balancingZone"],
                 "type": g["unavailabilityType"], "event": g["messageType"], "status": g["eventStatus"],
                 "start": g["eventStart"], "stop": g["eventStop"], "direction": g["direction"],
@@ -482,7 +492,9 @@ def build_events(store: Store, registry: dict[str, DatasetSpec], now: datetime |
     def iso(x):
         return None if pd.isna(x) else pd.Timestamp(x).isoformat()
     rows = [{
-        "source": r.source, "published": iso(r.published), "id": r.id, "participant": r.participant, "asset": r.asset,
+        "source": r.source, "published": iso(r.published), "id": r.id, "message_type": r.message_type,
+        "capacity_notice": bool(pd.notna(r.unavailable) or (isinstance(r.type, str) and r.type.strip())),
+        "participant": r.participant, "asset": r.asset,
         "zone": r.zone, "type": r.type, "event": r.event, "status": r.status, "start": iso(r.start), "stop": iso(r.stop),
         "direction": r.direction, "unavailable": _r(r.unavailable, 1), "unit": r.unit, "gwh_d": _r(r.gwh_d, 1),
         "reason": r.reason, "remarks": (r.remarks or "")[:400] if isinstance(r.remarks, str) else None,

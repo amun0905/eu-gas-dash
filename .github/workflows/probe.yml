@@ -28,7 +28,7 @@ jobs:
       - name: Probe every dataset
         continue-on-error: true
         run: gasdash probe
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: always()
         with:
           name: entsog-points-check

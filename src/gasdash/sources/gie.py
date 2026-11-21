@@ -82,15 +82,28 @@ class GieClient:
         except ValueError:
             raise RuntimeError(f"GIE {platform} returned non-JSON ({r.headers.get('content-type')}): {r.text[:300]}")
 
-    def pages(self, platform: str, params: dict) -> Iterator[list[dict]]:
-        page, last = 1, 1
-        while page <= last:
+    def pages(self, platform: str, params: dict, max_pages: int = 500) -> Iterator[list[dict]]:
+        """Walk every page. Uses last_page, and also `total` / full pages, because a platform may
+        cap the page size below what we asked for (IIP returned exactly 50 rows on page 1)."""
+        page, page_len = 1, None
+        while page <= max_pages:
             body = self._get(platform, {**params, "page": page, "size": PAGE_SIZE})
             if isinstance(body, list):  # defensive: some endpoints return a bare list
                 yield body
                 return
+            rows = body.get("data") or []
+            yield rows
+            if not rows:
+                return
+            page_len = page_len or len(rows)
             last = int(body.get("last_page") or 1)
-            yield body.get("data") or []
+            total = body.get("total")
+            if total:
+                last = max(last, -(-int(total) // page_len))
+            elif len(rows) >= page_len and page_len < PAGE_SIZE:
+                last = max(last, page + 1)  # no total given and a full (capped) page: try the next one
+            if page >= last:
+                return
             page += 1
 
     # ------------------------------------------------------------------ parsing

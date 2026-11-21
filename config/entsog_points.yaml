@@ -7,7 +7,8 @@
 #           Use {key: ..., sign: -1} to subtract (net flows = entry - exit at one operator).
 #   match:  regex filters on ENTSOG's /operatorPointDirections list:
 #             point_label, point_type, operator, connected (connected operators),
-#             direction (entry|exit), country (TSO country code or list), exit_label, sign
+#             direction (entry|exit), country (TSO country code or list), exclude_label, exclude_key,
+#             operator_type (TSO|LSO), one_per_point (true = one reading per physical point), sign
 #
 # Readings are taken on the EU side of each border and from ONE operator per physical flow,
 # so nothing is counted twice. `gasdash points` checks every key against ENTSOG's live list,
@@ -158,9 +159,14 @@ series:
 
   # ---------------------------------------------------------------- LNG send-out into grids
   # Picked up by type, so new terminals and FSRUs appear automatically. Grouped by country in the export.
+  # Terminals report twice (terminal operator + grid TSO, sometimes two TSOs): keep the TSO side,
+  # one reading per terminal, and skip virtual points such as Spain's TVB (LNG tank balance, not send-out).
   - id: lng_entsog
     group: LNG
     label: LNG send-out (ENTSOG)
     match:
       point_type: "LNG Entry point"
       direction: entry
+      operator_type: TSO
+      exclude_key: "VTP-"
+      one_per_point: true

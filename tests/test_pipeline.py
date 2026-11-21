@@ -53,7 +53,9 @@ def test_points_resolution(api):
     res = EntsogClient().resolve(load_points())
     assert (res.status != "unknown_key").all()
     lng = res[res.series == "lng_entsog"]
-    assert set(lng.country) == {"NL", "PL"}            # picked up by the match rule
+    assert set(lng.country) == {"NL", "PL", "IT", "GB"}   # picked up by the match rule, UK -> GB
+    assert len(lng) == 4                                     # one reading per terminal, TSO side, no virtual TVB
+    assert not lng.key.str.contains("LSO|VTP").any()
     tarifa = res[res.series == "im_tarifa"].set_index("key")["sign"].to_dict()
     assert sorted(tarifa.values()) == [-1, 1]          # net flow = entry - exit
 
@@ -131,3 +133,15 @@ def test_flow_net_sign():
                              "sign": [1, -1], "country": "XX", "status": "ok"})
     values, nominated, _ = flow_matrix(flows, resolved, idx)
     assert values["s"].tolist() == [6.0, 6.0, 6.0]
+
+
+def test_gie_paging_survives_capped_pages(api, gie_key):
+    from gasdash.sources.gie import GieClient
+    rows = [r for page in GieClient().pages("iip", {"published": "2026-11"}) for r in page]
+    assert len(rows) == 120          # 3 pages of 50/50/20 although last_page said 1
+
+
+def test_capacity_units():
+    from gasdash.export import _gwh_d
+    out = _gwh_d(pd.Series([1e6, 1e6, 10.0, 5.0]), pd.Series(["kWh/h", "kWh/d", "GWh/d", "kWh"]))
+    assert out.tolist()[:3] == [24.0, 1.0, 10.0] and pd.isna(out.iloc[3])

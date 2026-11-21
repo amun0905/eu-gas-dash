@@ -111,7 +111,7 @@ class EntsogClient:
                 rows.append({**base, "key": key, "sign": sign,
                              "pointLabel": None if hit is None else hit.get("pointLabel"),
                              "operatorLabel": None if hit is None else hit.get("operatorLabel"),
-                             "country": None if hit is None else hit.get("tSOCountry"),
+                             "country": None if hit is None else _country(hit.get("tSOCountry")),
                              "status": "ok" if hit is not None else "unknown_key"})
             if "match" in s:
                 m = s["match"]
@@ -126,13 +126,19 @@ class EntsogClient:
                     sel = sel[sel["tSOCountry"].fillna("").str.upper().isin([c.upper() for c in _as_list(m["country"])])]
                 if "exclude_label" in m:
                     sel = sel[~sel["pointLabel"].fillna("").str.contains(m["exclude_label"], flags=re.I, regex=True)]
+                if "exclude_key" in m:
+                    sel = sel[~sel["key"].str.contains(m["exclude_key"], flags=re.I, regex=True)]
+                if m.get("operator_type"):  # e.g. TSO: keeps the grid side, drops the terminal operator's (LSO) copy
+                    sel = sel[sel["operatorKey"].str.contains(f"-{m['operator_type']}-", regex=False)]
                 if "isInvalid" in sel:
                     sel = sel[~sel["isInvalid"].fillna(False).astype(bool)]
                 sel = sel.drop_duplicates("key")
+                if m.get("one_per_point"):  # several TSOs reporting the same terminal -> keep one reading
+                    sel = sel.sort_values("key").drop_duplicates("pointKey")
                 for _, hit in sel.iterrows():
                     rows.append({**base, "key": hit["key"], "sign": m.get("sign", 1),
                                  "pointLabel": hit.get("pointLabel"), "operatorLabel": hit.get("operatorLabel"),
-                                 "country": hit.get("tSOCountry"), "status": "matched"})
+                                 "country": _country(hit.get("tSOCountry")), "status": "matched"})
                 if sel.empty:
                     log.warning("ENTSOG series %s: match rule %s found no points", s["id"], m)
         out = pd.DataFrame(rows, columns=["series", "group", "label", "key", "sign", "pointLabel",
@@ -192,6 +198,11 @@ class EntsogClient:
             log.info("%s %s..%s: %d rows", spec.name, d_from, d_to, len(df))
             if not df.empty:
                 yield df
+
+
+def _country(c):
+    """ENTSOG writes UK; GIE and the rest of the site use GB."""
+    return "GB" if c == "UK" else c
 
 
 def _as_list(v):

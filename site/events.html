@@ -33,6 +33,7 @@
         <label for="f-type">Type</label><select id="f-type"><option value="">All</option><option>Planned</option><option>Unplanned</option></select>
         <label for="f-when">Show</label><select id="f-when"><option value="live">Active &amp; upcoming</option><option value="all">All (incl. last 14 days published)</option></select>
         <input type="search" id="f-q" placeholder="Search asset, operator, zone…" aria-label="Search messages">
+        <label><input type="checkbox" id="f-cap" checked> Capacity messages only</label>
       </div>
       <div class="table-wrap always" id="t-events"></div>
     </article>
@@ -46,7 +47,7 @@
   let DATA = null;
   const now = () => Date.now();
   const fmt = (s) => s ? fmtDT.format(new Date(s)) : "open";
-  ["f-src", "f-type", "f-when", "f-q"].forEach((id) => document.getElementById(id).addEventListener("input", list));
+  ["f-src", "f-type", "f-when", "f-q", "f-cap"].forEach((id) => document.getElementById(id).addEventListener("input", list));
 
   function kpis() {
     const ev = DATA.events, n = now();
@@ -82,13 +83,13 @@
   function list() {
     const src = document.getElementById("f-src").value, typ = document.getElementById("f-type").value;
     const when = document.getElementById("f-when").value, q = document.getElementById("f-q").value.trim().toLowerCase();
-    const n = now();
-    const rows = DATA.events.filter((e) => (!src || e.source === src) && (!typ || (e.type || "").toLowerCase() === typ.toLowerCase())
+    const n = now(), capOnly = document.getElementById("f-cap").checked;
+    const rows = DATA.events.filter((e) => (!capOnly || e.capacity_notice !== false) && (!src || e.source === src) && (!typ || (e.type || "").toLowerCase() === typ.toLowerCase())
       && (when === "all" || !e.stop || Date.parse(e.stop) >= n)
       && (!q || [e.asset, e.participant, e.zone, e.remarks, e.reason].some((x) => (x || "").toLowerCase().includes(q))));
     document.getElementById("count").textContent = `${rows.length} shown`;
     document.getElementById("t-events").innerHTML = rows.length ? table([
-      { label: "Source", key: "source", cls: "l" }, { label: "Type", key: "type", cls: "l" },
+      { label: "Source", key: "source", cls: "l" }, { label: "Type", key: "type", cls: "l", html: (r) => esc(r.type || r.message_type || "") },
       { label: "Start", key: "start", fmt: fmt }, { label: "End", key: "stop", fmt: fmt },
       { label: "Asset", key: "asset", cls: "wrap" }, { label: "Operator / participant", key: "participant", cls: "wrap" },
       { label: "Zone", key: "zone", cls: "l" }, { label: "Dir.", key: "direction", cls: "l" },

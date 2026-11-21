@@ -54,6 +54,10 @@ def gie_callback(platform):
                      "message": {"messageId": f"IIP-{m}-{i}", "messageType": "1", "unavailabilityType": "Planned"},
                      "asset": {"name": f"UGS {i}", "code": "21W"}, "balancingZone": {"name": "THE", "code": "THE"},
                      "unavailable": {"capacity": 50.0 * i, "unit": "GWh/d"}} for i in range(1, 4)]
+            rows += [{"published": f"{m}-15T08:00:00Z", "status": "inactive", "from": f"{m}-01T06:00:00Z",
+                      "to": f"{m}-02T06:00:00Z", "message": {"messageId": f"IIP-{m}-old-{k}", "unavailabilityType": "Planned"},
+                      "unavailable": {"capacity": 1000.0, "unit": "kWh/h"}} for k in range(117)]
+            size = min(size, 50)
         else:
             ent = (q.get("country") or q.get("type") or "eu").upper()
             days = list(_days(q["from"], q["to"]))
@@ -75,7 +79,7 @@ def gie_callback(platform):
                                  "gasDayStart": d.isoformat(), "inventory": {"lng": "1500.5", "gwh": f"{so * 3:.1f}"},
                                  "sendOut": f"{so:.1f}", "dtmi": {"lng": "3000", "gwh": f"{so * 6:.1f}"},
                                  "dtrs": f"{so * 1.6:.1f}", "status": "C", "info": [], "children": []})
-        last = max(1, math.ceil(len(rows) / size))
+        last = 1 if platform == "iip" else max(1, math.ceil(len(rows) / size))
         body = {"last_page": last, "total": len(rows), "dataset": platform, "gas_day": str(TODAY),
                 "data": rows[(page - 1) * size: page * size]}
         return 200, {"Content-Type": "application/json"}, json.dumps(body)
@@ -96,7 +100,11 @@ def opd_rows() -> list[dict]:
             rows.append({"operatorKey": m[1], "pointKey": m[2], "directionKey": m[3], "pointLabel": s["label"],
                          "operatorLabel": m[1], "tSOCountry": m[1][:2], "pointType": "Cross-Border Transmission IP",
                          "connectedOperators": "", "isInvalid": False})
-    for op, pk, lab in (("NL-TSO-0001", "LNG-00027", "Gate Terminal (I)"), ("PL-TSO-0002", "LNG-00006", "Swinoujscie")):
+    # Gate is reported by the terminal (LSO) and the TSO; Spain's TVB is a virtual point; Isle of Grain is "UK"
+    for op, pk, lab in (("NL-TSO-0001", "LNG-00027", "Gate Terminal (I)"), ("NL-LSO-0001", "LNG-00027", "Gate Terminal (I)"),
+                        ("PL-TSO-0002", "LNG-00006", "Swinoujscie"), ("ES-TSO-0006", "VTP-00043", "TVB"),
+                        ("IT-TSO-0001", "LNG-00015", "Cavarzere"), ("IT-TSO-0004", "LNG-00015", "Cavarzere"),
+                        ("UK-TSO-0001", "LNG-00008", "Isle of Grain")):
         rows.append({"operatorKey": op, "pointKey": pk, "directionKey": "entry", "pointLabel": lab, "operatorLabel": op,
                      "tSOCountry": op[:2], "pointType": "LNG Entry point", "connectedOperators": "", "isInvalid": False})
     return rows

@@ -156,6 +156,7 @@ datasets:
     columns:
       publicationDateTime: datetime
       messageId: str
+      threadId: str
       versionNumber: int
       isLatestVersion: str
       marketParticipantName: str
