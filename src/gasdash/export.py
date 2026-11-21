@@ -80,7 +80,12 @@ def _by_calendar_day(s: pd.Series) -> pd.Series:
     keys = s.index.strftime("%m-%d")
     out = pd.Series(s.values, index=keys)
     out = out[~out.index.duplicated(keep="last")]
-    return out.reindex(_md_template().strftime("%m-%d"))
+    out = out.reindex(_md_template().strftime("%m-%d"))
+    # Non-leap years have no 29 Feb. Fill that slot with the midpoint of 28 Feb and 1 Mar, so a single
+    # leap year doesn't become the whole 5-year average (and min/max) for that day.
+    if pd.isna(out.get("02-29")) and pd.notna(out.get("02-28")) and pd.notna(out.get("03-01")):
+        out["02-29"] = (out["02-28"] + out["03-01"]) / 2
+    return out
 
 
 def _seasonal(s: pd.Series, year: int, n_years: int = 5) -> dict:
@@ -102,6 +107,8 @@ def _seasonal(s: pd.Series, year: int, n_years: int = 5) -> dict:
         "min": _arr(band.min(axis=1)) if band_years else [],
         "max": _arr(band.max(axis=1)) if band_years else [],
         "avg": _arr(band.mean(axis=1)) if band_years else [],
+        # each year behind the band, so the table can show which year drives a kink
+        "years": {str(y): _arr(years[y]) for y in band_years},
     }
 
 

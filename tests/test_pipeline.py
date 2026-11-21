@@ -160,3 +160,14 @@ def test_terminals(api, gie_key, store):
     assert all(x["days_cover"] and x["days_cover"] > 0 for x in terms)
     assert all(1 <= x["unloads_30d"] <= 5 for x in terms)  # one cargo every 9 days, not every day
     assert {x["name"] for x in terms} == {"Gate Terminal (I)", "Wilhelmshaven 1", "South Hook"}
+
+
+def test_leap_day_does_not_spike_band():
+    from gasdash.export import _seasonal
+    idx = pd.date_range("2021-01-01", "2026-06-30", freq="D", tz="UTC")
+    s = pd.Series(50.0, index=idx)
+    s[s.index == pd.Timestamp("2024-02-29", tz="UTC")] = 90.0   # only the leap year has this day
+    out = _seasonal(s, 2026)
+    i = out["md"].index("02-29")
+    assert out["avg"][i] < 60 and out["current"][i] == 50.0     # filled from neighbours, no gap
+    assert set(out["years"]) == {"2021", "2022", "2023", "2024", "2025"}

@@ -115,7 +115,8 @@
     o.legend.data = [String(f.current_year), String(f.current_year - 1), "5-year average", `5-year range ${yrs}`];
     chart("c-season").setOption(o, true);
     fillTable("#card-season", seriesTable(md.map((x) => Date.parse("2024-" + x + "T00:00:00Z")),
-      [{ name: String(f.current_year), data: f.current }, { name: String(f.current_year - 1), data: f.previous }, { name: "5y avg", data: f.avg }, { name: "5y min", data: f.min }, { name: "5y max", data: f.max }]));
+      [{ name: String(f.current_year), data: f.current }, { name: "5y avg", data: f.avg }, { name: "5y min", data: f.min }, { name: "5y max", data: f.max },
+       ...Object.keys(f.years || {}).sort().reverse().map((y) => ({ name: y, data: f.years[y] }))]));
   }
 
   function countries() {
