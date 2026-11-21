@@ -59,7 +59,7 @@ def gie_callback(platform):
                       "unavailable": {"capacity": 1000.0, "unit": "kWh/h"}} for k in range(117)]
             size = min(size, 50)
         else:
-            ent = (q.get("country") or q.get("type") or "eu").upper()
+            ent = q.get("facility") or (q.get("country") or q.get("type") or "eu").upper()
             days = list(_days(q["from"], q["to"]))
             rows = []
             for d in reversed(days):  # GIE returns newest first
@@ -75,8 +75,9 @@ def gie_callback(platform):
                                  "info": [], "children": []})
                 else:
                     so = 3000 + 800 * math.sin(d.toordinal() / 20) if ent == "EU" else 200 + 50 * math.sin(d.toordinal() / 15)
+                    inv = so * 3 + (900 * (1 - (d.toordinal() % 9) / 9) if "facility" in q else 0)   # jump on cargo day, then drawn down
                     rows.append({"name": ent, "code": ent.lower(), "url": ent.lower(), "updatedAt": f"{d} 18:31:05",
-                                 "gasDayStart": d.isoformat(), "inventory": {"lng": "1500.5", "gwh": f"{so * 3:.1f}"},
+                                 "gasDayStart": d.isoformat(), "inventory": {"lng": "1500.5", "gwh": f"{inv:.1f}"},
                                  "sendOut": f"{so:.1f}", "dtmi": {"lng": "3000", "gwh": f"{so * 6:.1f}"},
                                  "dtrs": f"{so * 1.6:.1f}", "status": "C", "info": [], "children": []})
         last = 1 if platform == "iip" else max(1, math.ceil(len(rows) / size))
@@ -185,7 +186,23 @@ def openmeteo_callback(request):
     return 200, {}, json.dumps(bodies if n > 1 else bodies[0])
 
 
+FACILITIES = [
+    {"name": "Gate Terminal", "short_name": "Gate", "type": "LSO", "eic": "21X000000001063H", "country": "NL",
+     "facilities": [{"name": "Gate Terminal (I)", "type": "Onshore", "eic": "21W0000000001245", "country": "NL",
+                     "company": "21X000000001063H", "operational_end_date": None}]},
+    {"name": "Deutsche Energy Terminal GmbH", "short_name": "DET", "type": "LSO", "eic": "21X000000001403J", "country": "DE",
+     "facilities": [{"name": "Wilhelmshaven 1", "type": "FSRU", "eic": "37W0000000000001", "country": "DE",
+                     "company": "21X000000001403J", "operational_end_date": None},
+                    {"name": "Old FSRU", "type": "FSRU", "eic": "37W0000000000099", "country": "DE",
+                     "company": "21X000000001403J", "operational_end_date": "2020-01-01"}]},
+    {"name": "South Hook LNG", "short_name": "South Hook", "type": "LSO", "eic": "21X0000000013554", "country": "GB",
+     "facilities": [{"name": "South Hook", "type": "Onshore", "eic": "21W000000000SH01", "country": "GB",
+                     "company": "21X0000000013554", "operational_end_date": None}]},
+]
+
+
 def install(rsps: responses.RequestsMock) -> None:
+    rsps.add(responses.GET, re.compile(r"https://alsi\.gie\.eu/api/about.*"), json=FACILITIES)
     for platform, url in gie.BASE.items():
         rsps.add_callback(responses.GET, url, callback=gie_callback(platform))
     rsps.add_callback(responses.GET, re.compile(re.escape(entsog.BASE_URL) + r"/.*"), callback=entsog_callback)

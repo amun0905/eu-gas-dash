@@ -24,6 +24,8 @@ from . import SourceNotConfigured, day_utc
 
 log = logging.getLogger(__name__)
 
+LISTING_URL = {"alsi": "https://alsi.gie.eu/api/about?show=listing",
+               "agsi": "https://agsi.gie.eu/api/about?show=listing"}
 BASE = {
     "agsi": "https://agsi.gie.eu/api",
     "alsi": "https://alsi.gie.eu/api",
@@ -105,6 +107,44 @@ class GieClient:
             if page >= last:
                 return
             page += 1
+
+    def facilities(self, platform: str = "alsi") -> list[dict]:
+        """Every facility (LNG terminal / storage site) from the platform's public listing:
+        [{company: {name, eic, country, facilities: [{name, type, eic, country, company, operational_*}]}}]"""
+        if getattr(self, "_facilities", None) is None:
+            r = self.session.get(LISTING_URL[platform], timeout=self.timeout)
+            if r.status_code >= 400:
+                raise RuntimeError(f"GIE {platform} listing -> {r.status_code}: {r.text[:200]}")
+            out, seen = [], set()
+
+            def walk(node, company=None):
+                if isinstance(node, list):
+                    for x in node:
+                        walk(x, company)
+                elif isinstance(node, dict):
+                    if isinstance(node.get("facilities"), list):  # a company
+                        for f in node["facilities"]:
+                            walk(f, node)
+                        return
+                    if node.get("eic") and node.get("country") and (node.get("company") or company):
+                        key = (node["eic"], node["country"])
+                        if key not in seen:
+                            seen.add(key)
+                            out.append({"eic": node["eic"], "name": node.get("name"), "type": node.get("type"),
+                                        "country": str(node["country"]).upper(),
+                                        "company": node.get("company") or (company or {}).get("eic"),
+                                        "company_name": (company or {}).get("short_name") or (company or {}).get("name"),
+                                        "start": node.get("operational_start_date"), "end": node.get("operational_end_date")})
+                        return
+                    for v in node.values():
+                        if isinstance(v, (list, dict)):
+                            walk(v, company)
+            walk(r.json())
+            if not out:
+                raise RuntimeError(f"GIE {platform} listing returned no facilities")
+            log.info("GIE %s listing: %d facilities", platform, len(out))
+            self._facilities = out
+        return self._facilities
 
     # ------------------------------------------------------------------ parsing
     @staticmethod
@@ -202,6 +242,27 @@ class GieClient:
                 log.info("%s %s %s..%s: %d rows", spec.name, entity, d_from, d_to, len(df))
                 if not df.empty:
                     yield df
+        elif platform == "alsi_facility":
+            d_from = pd.Timestamp(start).date().isoformat()
+            d_to = (pd.Timestamp(end) - pd.Timedelta(seconds=1)).date().isoformat()
+            for f in self.facilities("alsi"):
+                if f["end"] and str(f["end"])[:10] < d_from:   # closed before this window
+                    continue
+                if f["start"] and str(f["start"])[:10] > d_to:  # not yet operating
+                    continue
+                params = {"country": f["country"].lower(), "company": f["company"], "facility": f["eic"],
+                          "from": d_from, "to": d_to}
+                frames = [self.parse_alsi(rows, f["eic"]) for rows in self.pages("alsi", params)]
+                df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+                if df.empty:
+                    continue
+                df["entity"] = f["eic"]  # EICs are case-sensitive; keep as published
+                df["name"] = f["name"] or f["eic"]  # the listing's facility name is the readable one
+                df["country"] = f["country"]
+                df["company"] = f["company_name"]
+                df["facilityType"] = f["type"]
+                log.info("%s %s (%s) %s..%s: %d rows", spec.name, f["name"], f["country"], d_from, d_to, len(df))
+                yield df
         elif platform == "iip":
             # Walk publication months (the `published` filter accepts YYYY-MM).
             months = pd.period_range(pd.Timestamp(start).tz_localize(None).to_period("M"),

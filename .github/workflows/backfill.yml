@@ -8,7 +8,7 @@ on:
       datasets:
         description: "Space-separated dataset names"
         required: true
-        default: "entsog_flows gb_nts weather_temp entsog_umm entsog_cmp_auctions agsi_storage alsi_lng gie_umm"
+        default: "entsog_flows gb_nts weather_temp entsog_umm entsog_cmp_auctions agsi_storage alsi_lng alsi_terminals gie_umm"
       start:
         description: "Start date (YYYY-MM-DD); blank = each dataset's configured start"
         required: false

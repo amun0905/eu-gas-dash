@@ -77,6 +77,33 @@ datasets:
       status: str
       updatedAt: datetime
 
+  # ============================================================ GIE ALSI : individual LNG terminals
+  alsi_terminals:
+    description: LNG send-out and tank inventory for each terminal (ALSI), daily
+    source: gie
+    query: window
+    time_column: gasDay
+    keys: [gasDay, entity]
+    chunk_days: 400
+    lookback_days: 10
+    start: "2022-01-01"        # terminal view needs recent history only; keeps the backfill to ~1 hour
+    max_staleness_hours: 60
+    options:
+      platform: alsi_facility  # terminals come from ALSI's public listing, so new FSRUs appear by themselves
+    columns:
+      gasDay: datetime
+      entity: str              # facility EIC code
+      name: str
+      country: str
+      company: str
+      facilityType: str
+      inventory_gwh: float
+      dtmi_gwh: float
+      sendOut: float
+      dtrs: float
+      status: str
+      updatedAt: datetime
+
   # ============================================================ GIE IIP : REMIT UMMs from SSOs/LSOs/TSOs
   gie_umm:
     description: Urgent market messages on the GIE Inside Information Platform (storage, LNG, transmission)

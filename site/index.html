@@ -40,7 +40,7 @@
     </article>
 
     <article class="card span-6" id="card-net">
-      <div class="card-head"><h2 id="net-title">Net injection</h2><span class="unit">GWh/d · + injection / − withdrawal</span>
+      <div class="card-head"><h2 id="net-title">Net injection</h2><span class="unit"><span data-u="F">GWh/d</span> · + injection / − withdrawal</span>
         <span class="tools"><button data-toggle-table>Table</button></span></div>
       <div class="chart short" id="c-net"></div><div class="table-wrap"></div>
       <p class="note">Injection minus withdrawal as reported by storage operators, last 13 months.</p>
@@ -65,7 +65,7 @@
 
 <script>
 (() => {
-  const { css, slot, num, signed, base, line, pairs, axisTooltip, chart, table, seriesTable, fillTable, fmtDay, fmtDayY, esc } = GD;
+  const { c, ca, uF, uS, nf, sf, css, slot, num, signed, base, line, pairs, axisTooltip, chart, table, seriesTable, fillTable, fmtDay, fmtDayY, esc } = GD;
   let DATA = null, ENT = new URLSearchParams(location.search).get("area") || "EU";
   const sel = document.getElementById("entity");
   sel.addEventListener("change", () => { ENT = sel.value; draw(); });
@@ -76,11 +76,11 @@
     const k = (label, value, unit, sub) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}<small>${unit}</small></div><div class="sub">${sub}</div></div>`;
     document.getElementById("kpis").innerHTML = [
       k(`${esc(r.name)} storage`, num(r.full, 1), "%", `gas day ${fmtDayY.format(new Date(r.gas_day))} · status ${esc(r.status || "–")}`),
-      k("Gas in storage", num(r.twh, 1), "TWh", `of ${num(r.wgv_twh, 0)} TWh working gas volume`),
+      k("Gas in storage", nf(r.twh, 1), uS(), `of ${nf(r.wgv_twh, 0)} ${uS()} working gas volume`),
       k("Change, 1 day", signed(r.d1_pp, 2), "pp", "percentage points of capacity"),
       k("Change, 7 days", signed(r.d7_pp, 1), "pp", "percentage points"),
       k("vs 5-year average", signed(r.vs_5y_pp, 1), "pp", `vs last year ${signed(r.vs_last_year_pp, 1)} pp`),
-      k("Net injection", signed(r.net_injection_gwh, 0), "GWh/d", "negative = net withdrawal"),
+      k("Net injection", sf(r.net_injection_gwh, 0), uF(), "negative = net withdrawal"),
     ].join("");
     document.getElementById("meta").textContent = `Latest gas day ${fmtDayY.format(new Date(r.gas_day))}`;
   }
@@ -127,7 +127,7 @@
                 axisLabel: { color: css("--text-secondary"), fontSize: 11.5, fontWeight: (v) => 400 } };
     o.tooltip = { ...o.tooltip, trigger: "item", formatter: (p) => {
       const r = rows[p.dataIndex];
-      return `<b>${esc(r.name)}</b><br>Fill ${num(r.full, 1)}% · ${num(r.twh, 1)} TWh<br>vs 5y avg ${signed(r.vs_5y_pp, 1)} pp<br>Gas day ${esc(r.gas_day)} (${esc(r.status || "–")})`; } };
+      return `<b>${esc(r.name)}</b><br>Fill ${num(r.full, 1)}% · ${nf(r.twh, 1)} ${uS()}<br>vs 5y avg ${signed(r.vs_5y_pp, 1)} pp<br>Gas day ${esc(r.gas_day)} (${esc(r.status || "–")})`; } };
     o.series = [
       { type: "bar", data: rows.map((r) => ({ value: r.full, itemStyle: { color: r.code === ENT ? slot(0) : css("--ref"), borderRadius: [0, 4, 4, 0] } })), barWidth: "62%",
         label: { show: true, position: "right", color: css("--text-secondary"), fontSize: 11, formatter: (p) => num(p.value, 0) } },
@@ -148,11 +148,11 @@
     const name = DATA.entities.find((e) => e.code === ENT)?.name || ENT;
     document.getElementById("net-title").textContent = `${name}: net injection`;
     const o = base({ legend: false, unit: "GWh/d" });
-    o.tooltip.formatter = axisTooltip("GWh/d (+ injection, − withdrawal)", 0);
+    o.tooltip.formatter = axisTooltip(() => `${uF()} (+ injection, − withdrawal)`, 0);
     o.series = [{ name: "Net injection", type: "bar", barCategoryGap: "10%",
-      data: S.t.map((t, i) => { const v = S.net_injection_gwh[i]; return { value: [t, v], itemStyle: { color: v >= 0 ? css("--div-neg") : css("--div-pos") } }; }) }];
+      data: S.t.map((t, i) => { const v = c(S.net_injection_gwh[i]); return { value: [t, v], itemStyle: { color: v >= 0 ? css("--div-neg") : css("--div-pos") } }; }) }];
     chart("c-net").setOption(o, true);
-    fillTable("#card-net", seriesTable(S.t, [{ name: "Net injection GWh/d", data: S.net_injection_gwh }, { name: "Gas in storage TWh", data: S.twh }], 0));
+    fillTable("#card-net", seriesTable(S.t, [{ name: `Net injection ${uF()}`, data: ca(S.net_injection_gwh) }, { name: `Gas in storage ${uS()}`, data: ca(S.twh) }], GD.dp(0)));
   }
 
   function hdd() {
@@ -172,10 +172,10 @@
   function latestTable() {
     document.getElementById("t-latest").innerHTML = table([
       { label: "Area", key: "name", cls: "l" }, { label: "Gas day", key: "gas_day" }, { label: "Fill %", key: "full", fmt: (v) => num(v, 1) },
-      { label: "TWh", key: "twh", fmt: (v) => num(v, 1) }, { label: "Capacity TWh", key: "wgv_twh", fmt: (v) => num(v, 0) },
+      { label: uS(), key: "twh", fmt: (v) => nf(v, 1) }, { label: `Capacity ${uS()}`, key: "wgv_twh", fmt: (v) => nf(v, 0) },
       { label: "1d pp", key: "d1_pp", fmt: (v) => signed(v, 2) }, { label: "7d pp", key: "d7_pp", fmt: (v) => signed(v, 1) },
       { label: "vs 5y pp", key: "vs_5y_pp", fmt: (v) => signed(v, 1) }, { label: "vs last year pp", key: "vs_last_year_pp", fmt: (v) => signed(v, 1) },
-      { label: "Net injection GWh/d", key: "net_injection_gwh", fmt: (v) => signed(v, 0) }, { label: "Status", key: "status" },
+      { label: `Net injection ${uF()}`, key: "net_injection_gwh", fmt: (v) => sf(v, 0) }, { label: "Status", key: "status" },
     ], DATA.latest);
   }
 

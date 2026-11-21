@@ -145,3 +145,18 @@ def test_capacity_units():
     from gasdash.export import _gwh_d
     out = _gwh_d(pd.Series([1e6, 1e6, 10.0, 5.0]), pd.Series(["kWh/h", "kWh/d", "GWh/d", "kWh"]))
     assert out.tolist()[:3] == [24.0, 1.0, 10.0] and pd.isna(out.iloc[3])
+
+
+def test_terminals(api, gie_key, store):
+    from gasdash.export import build_lng
+    main(["--store", store.url, "backfill", "alsi_terminals", "alsi_lng",
+          "--start", (datetime.now(UTC) - timedelta(days=120)).date().isoformat()])
+    t = store.read(REG["alsi_terminals"])
+    assert set(t.entity) == {"21W0000000001245", "37W0000000000001", "21W000000000SH01"}  # closed FSRU skipped
+    assert set(t.country) == {"NL", "DE", "GB"}
+    lng = build_lng(store, REG)
+    terms = lng["terminals"]["list"]
+    assert len(terms) == 3 and all(len(x["send_out_series"]) == 365 for x in terms)
+    assert all(x["days_cover"] and x["days_cover"] > 0 for x in terms)
+    assert all(1 <= x["unloads_30d"] <= 5 for x in terms)  # one cargo every 9 days, not every day
+    assert {x["name"] for x in terms} == {"Gate Terminal (I)", "Wilhelmshaven 1", "South Hook"}

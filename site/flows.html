@@ -33,13 +33,13 @@
       <p class="src" id="g-src">Source: ENTSOG Transparency Platform</p>
     </article>
     <article class="card span-5" id="card-points">
-      <div class="card-head"><h2>Latest gas day</h2><span class="unit">GWh/d · physical flow</span></div>
+      <div class="card-head"><h2>Latest gas day</h2><span class="unit"><span data-u="F">GWh/d</span> · physical flow</span></div>
       <div class="table-wrap always" id="t-group"></div>
       <p class="note">7d / 30d = averages up to the latest day with physical flow. "Next" = latest nomination (not yet a measured flow).</p>
     </article>
 
     <article class="card span-8" id="card-gb">
-      <div class="card-head"><h2>GB: NTS supply by source &amp; demand</h2><span class="unit">GWh/d</span>
+      <div class="card-head"><h2>GB: NTS supply by source &amp; demand</h2><span class="unit" data-u="F">GWh/d</span>
         <span class="tools"><button data-toggle-table>Table</button></span></div>
       <div class="chart" id="c-gb"></div><div class="table-wrap"></div>
       <p class="note" id="gb-note"></p>
@@ -55,7 +55,7 @@
 
 <script>
 (() => {
-  const { css, slot, num, signed, base, line, area, pairs, chart, table, seriesTable, fillTable, fmtDayY, esc } = GD;
+  const { c, ca, uF, nf, sf, css, slot, num, signed, base, line, area, pairs, chart, table, seriesTable, fillTable, fmtDayY, esc } = GD;
   const GROUPS = ["Norway", "Russia", "Other imports", "To Ukraine", "Interconnectors"];
   const STACKED = new Set(["Norway", "Other imports", "To Ukraine"]);
   const NOTES = {
@@ -76,6 +76,7 @@
     GD.seg("groups", (v) => { GROUP = v; draw(); });
   }
 
+  const src = (r) => (r.id === "no_langeled_gb" ? "gb" : "eu");
   function lastIdx(arr) { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return i; return -1; }
 
   function kpis() {
@@ -86,12 +87,12 @@
     const ts = by("ru_turkstream"), ua = sumG("To Ukraine");
     const k = (label, value, unit, sub) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}<small>${unit}</small></div><div class="sub">${sub}</div></div>`;
     document.getElementById("kpis").innerHTML = [
-      k("Norway, all landings", num(sumG("Norway"), 0), "GWh/d", `30d avg ${num(sumG30("Norway"), 0)}`),
-      k("TurkStream into EU", num(ts?.value, 0), "GWh/d", `30d avg ${num(ts?.avg_30d, 0)}`),
-      k("Other pipeline imports", num(sumG("Other imports"), 0), "GWh/d", `30d avg ${num(sumG30("Other imports"), 0)}`),
-      k("EU → Ukraine", num(ua, 0), "GWh/d", `30d avg ${num(sumG30("To Ukraine"), 0)}`),
-      k("NL → DE", signed(by("ic_nl_de")?.value, 0), "GWh/d", "net, VIP TTF-THE"),
-      k("IUK: GB → BE", signed(by("ic_be_gb") ? -by("ic_be_gb").value : null, 0), "GWh/d", "net; negative = flowing to GB"),
+      k("Norway, all landings", nf(sumG("Norway"), 0), uF(), `30d avg ${nf(sumG30("Norway"), 0)}`),
+      k("TurkStream into EU", nf(ts?.value, 0), uF(), `30d avg ${nf(ts?.avg_30d, 0)}`),
+      k("Other pipeline imports", nf(sumG("Other imports"), 0), uF(), `30d avg ${nf(sumG30("Other imports"), 0)}`),
+      k("EU → Ukraine", nf(ua, 0), uF(), `30d avg ${nf(sumG30("To Ukraine"), 0)}`),
+      k("NL → DE", sf(by("ic_nl_de")?.value, 0), uF(), "net, VIP TTF-THE"),
+      k("IUK: GB → BE", sf(by("ic_be_gb") ? -by("ic_be_gb").value : null, 0), uF(), "net; negative = flowing to GB"),
     ].join("");
     document.getElementById("meta").textContent = day ? `Latest physical flow: gas day ${fmtDayY.format(new Date(day))}` : "";
   }
@@ -106,19 +107,19 @@
     const stacked = STACKED.has(GROUP);
     document.getElementById("g-title").textContent = GROUP === "To Ukraine" ? "Flows into Ukraine" : `${GROUP}: flows by point`;
     document.getElementById("g-note").textContent = NOTES[GROUP] || "";
-    document.getElementById("g-unit").textContent = stacked ? "GWh/d · stacked" : "GWh/d";
+    document.getElementById("g-unit").textContent = stacked ? `${uF()} · stacked` : uF();
     document.getElementById("g-src").textContent = ss.some((s) => s.source === "nationalgas") ? "Sources: ENTSOG Transparency Platform; National Gas Transmission (Easington)" : "Source: ENTSOG Transparency Platform";
     const nomIdx = Math.min(...ss.map((s) => s.nominated.indexOf(1)).filter((i) => i >= 0).concat([Infinity]));
     const o = base({});
     o.tooltip.formatter = (ps) => {
       if (!ps.length) return "";
       const i = ps[0].dataIndex + i0, isNom = ss.some((s) => s.nominated[i]);
-      const rows = ps.filter((p) => p.value && p.value[1] != null).map((p) => `<div style="display:flex;gap:10px;justify-content:space-between"><span>${p.marker}${esc(p.seriesName)}</span><b>${num(p.value[1], 1)}</b></div>`).join("");
-      const tot = stacked ? `<div style="display:flex;justify-content:space-between;border-top:1px solid ${css("--border")};margin-top:3px;padding-top:3px"><span>Total</span><b>${num(ps.reduce((s, p) => s + (p.value?.[1] || 0), 0), 1)}</b></div>` : "";
-      return `<div style="min-width:220px"><div style="color:${css("--text-secondary")};margin-bottom:4px">Gas day ${fmtDayY.format(ps[0].axisValue)}${isNom ? " · nomination" : ""}</div>${rows}${tot}<div style="color:${css("--text-muted")};margin-top:4px">GWh/d</div></div>`;
+      const rows = ps.filter((p) => p.value && p.value[1] != null).map((p) => `<div style="display:flex;gap:10px;justify-content:space-between"><span>${p.marker}${esc(p.seriesName)}</span><b>${num(p.value[1], GD.dp(1))}</b></div>`).join("");
+      const tot = stacked ? `<div style="display:flex;justify-content:space-between;border-top:1px solid ${css("--border")};margin-top:3px;padding-top:3px"><span>Total</span><b>${num(ps.reduce((s, p) => s + (p.value?.[1] || 0), 0), GD.dp(1))}</b></div>` : "";
+      return `<div style="min-width:220px"><div style="color:${css("--text-secondary")};margin-bottom:4px">Gas day ${fmtDayY.format(ps[0].axisValue)}${isNom ? " · nomination" : ""}</div>${rows}${tot}<div style="color:${css("--text-muted")};margin-top:4px">${uF()}</div></div>`;
     };
     o.series = ss.map((s, k) => {
-      const d = pairs(tt, s.values.slice(i0));
+      const d = pairs(tt, ca(s.values.slice(i0), s.source === "nationalgas" ? "gb" : "eu"));
       if (stacked) return { ...area(s.label, d, slot(k)), areaStyle: { color: slot(k), opacity: 1 }, lineStyle: { width: 1, color: css("--surface-1") } };
       return line(s.label, d, slot(k));
     });
@@ -127,13 +128,13 @@
         data: [[{ xAxis: t[nomIdx] - 432e5, name: "Nominated", label: { color: css("--text-muted"), fontSize: 11, position: "insideTop" } }, { xAxis: t[t.length - 1] + 432e5 }]] };
     if (stackedG && tEnd < DATA.t.length) document.getElementById("g-note").textContent += " The stack ends on the last gas day every point has reported; newer nominations are in the table.";
     chart("c-group").setOption(o, true);
-    fillTable("#card-group", seriesTable(tt, ss.map((s) => ({ name: s.label, data: s.values.slice(i0) }))));
+    fillTable("#card-group", seriesTable(tt, ss.map((s) => ({ name: s.label, data: ca(s.values.slice(i0), s.source === "nationalgas" ? "gb" : "eu") })), GD.dp(1)));
 
     const rows = DATA.latest.filter((r) => r.group === GROUP);
     document.getElementById("t-group").innerHTML = rows.length ? table([
-      { label: "Point", key: "label", cls: "wrap" }, { label: "Latest", key: "value", fmt: (v) => num(v, 1) },
-      { label: "7d", key: "avg_7d", fmt: (v) => num(v, 1) }, { label: "30d", key: "avg_30d", fmt: (v) => num(v, 1) },
-      { label: "30d, 1y ago", key: "year_ago_30d", fmt: (v) => num(v, 1) }, { label: "Next", key: "nomination_next", fmt: (v) => num(v, 1) },
+      { label: "Point", key: "label", cls: "wrap" }, { label: "Latest", key: "value", fmt: (v, r) => nf(v, 1, src(r)) },
+      { label: "7d", key: "avg_7d", fmt: (v, r) => nf(v, 1, src(r)) }, { label: "30d", key: "avg_30d", fmt: (v, r) => nf(v, 1, src(r)) },
+      { label: "30d, 1y ago", key: "year_ago_30d", fmt: (v, r) => nf(v, 1, src(r)) }, { label: "Next", key: "nomination_next", fmt: (v, r) => nf(v, 1, src(r)) },
     ], rows) : '<p class="empty">No data for this group yet.</p>';
     document.getElementById("t-points").innerHTML = table([
       { label: "Line", key: "label", cls: "wrap" },
@@ -148,12 +149,12 @@
     const t = DATA.t, i0 = cut(t), tt = t.slice(i0);
     const names = Object.keys(G.supply);
     const o = base({});
-    o.tooltip.formatter = GD.axisTooltip("GWh/d", 0);
-    o.series = names.map((n, k) => ({ ...area(n, pairs(tt, G.supply[n].slice(i0)), slot(k), "gb"), areaStyle: { color: slot(k), opacity: 1 }, lineStyle: { width: 1, color: css("--surface-1") } }));
-    o.series.push(line("NTS demand", pairs(tt, G.demand.slice(i0)), css("--text-primary")));
-    o.series.push(line("Seasonal normal demand", pairs(tt, G.demand_normal.slice(i0)), css("--ref"), { lineStyle: { width: 1.5, type: "dashed", color: css("--ref") } }));
+    o.tooltip.formatter = GD.axisTooltip(uF, 0);
+    o.series = names.map((n, k) => ({ ...area(n, pairs(tt, ca(G.supply[n].slice(i0), "gb")), slot(k), "gb"), areaStyle: { color: slot(k), opacity: 1 }, lineStyle: { width: 1, color: css("--surface-1") } }));
+    o.series.push(line("NTS demand", pairs(tt, ca(G.demand.slice(i0), "gb")), css("--text-primary")));
+    o.series.push(line("Seasonal normal demand", pairs(tt, ca(G.demand_normal.slice(i0), "gb")), css("--ref"), { lineStyle: { width: 1.5, type: "dashed", color: css("--ref") } }));
     chart("c-gb").setOption(o, true);
-    fillTable("#card-gb", seriesTable(tt, [...names.map((n) => ({ name: n, data: G.supply[n].slice(i0) })), { name: "Demand", data: G.demand.slice(i0) }, { name: "Normal", data: G.demand_normal.slice(i0) }], 0));
+    fillTable("#card-gb", seriesTable(tt, [...names.map((n) => ({ name: n, data: ca(G.supply[n].slice(i0), "gb") })), { name: "Demand", data: ca(G.demand.slice(i0), "gb") }, { name: "Normal", data: ca(G.demand_normal.slice(i0), "gb") }], GD.dp(0)));
   }
 
   function draw() { groupChart(); gb(); }

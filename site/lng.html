@@ -24,7 +24,7 @@
   <section class="kpis" id="kpis" aria-label="Latest values"></section>
   <section class="grid">
     <article class="card span-8" id="card-country">
-      <div class="card-head"><h2>Send-out by country</h2><span class="unit">GWh/d · stacked</span>
+      <div class="card-head"><h2>Send-out by country</h2><span class="unit"><span data-u="F">GWh/d</span> · stacked</span>
         <span class="tools"><button data-toggle-table>Table</button></span></div>
       <div class="chart" id="c-country"></div><div class="table-wrap"></div>
       <p class="note">Regasified LNG delivered into the grid. Countries ordered by 30-day average; the smallest are grouped as Other.</p>
@@ -38,18 +38,49 @@
       <p class="src">Source: GIE ALSI</p>
     </article>
     <article class="card span-6" id="card-season">
-      <div class="card-head"><h2>EU send-out vs 5-year range</h2><span class="unit">GWh/d · 7-day average</span>
+      <div class="card-head"><h2>EU send-out vs 5-year range</h2><span class="unit"><span data-u="F">GWh/d</span> · 7-day average</span>
         <span class="tools"><button data-toggle-table>Table</button></span></div>
       <div class="chart short" id="c-season"></div><div class="table-wrap"></div>
       <p class="note">Shaded band = min–max of the previous five years; dashed = their average.</p>
       <p class="src">Source: GIE ALSI</p>
     </article>
     <article class="card span-6" id="card-entsog">
-      <div class="card-head"><h2>Cross-check: LNG entry points</h2><span class="unit">GWh/d · physical flow</span>
+      <div class="card-head"><h2>Cross-check: LNG entry points</h2><span class="unit"><span data-u="F">GWh/d</span> · physical flow</span>
         <span class="tools"><button data-toggle-table>Table</button></span></div>
       <div class="chart short" id="c-entsog"></div><div class="table-wrap"></div>
       <p class="note">Physical flows at every ENTSOG point of type "LNG Entry point", by TSO country. Should track ALSI send-out; gaps point to reporting differences.</p>
       <p class="src">Source: ENTSOG Transparency Platform</p>
+    </article>
+    <article class="card span-12" id="card-terms">
+      <div class="card-head"><h2>Terminals</h2><span class="unit">latest gas day · click a row for detail</span></div>
+      <div class="filters">
+        <label for="t-country">Country</label><select id="t-country"><option value="">All</option></select>
+        <label><input type="checkbox" id="t-active" checked> Hide idle terminals</label>
+      </div>
+      <div class="table-wrap always" id="t-terms"></div>
+      <p class="note">Utilisation = send-out / declared reference send-out. Days of cover = tank inventory / 7-day average send-out.
+        Unloads = likely cargo unloadings in the last 30 days (see note below the detail charts).</p>
+      <p class="src">Source: GIE ALSI (terminal level)</p>
+    </article>
+    <article class="card span-12" id="card-tstack">
+      <div class="card-head"><h2 id="tstack-title">Send-out by terminal</h2><span class="unit"><span data-u="F">GWh/d</span> · stacked</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart short" id="c-tstack"></div><div class="table-wrap"></div>
+      <p class="note">Choose a country above to see its terminals. Top seven by 30-day average; the rest grouped as Other.</p>
+      <p class="src">Source: GIE ALSI (terminal level)</p>
+    </article>
+    <article class="card span-6" id="card-tso">
+      <div class="card-head"><h2 id="tso-title">Terminal send-out</h2><span class="unit"><span data-u="F">GWh/d</span></span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart short" id="c-tso"></div><div class="table-wrap"></div>
+      <p class="src">Source: GIE ALSI</p>
+    </article>
+    <article class="card span-6" id="card-tinv">
+      <div class="card-head"><h2 id="tinv-title">Tank inventory</h2><span class="unit"><span data-u="G">GWh</span> · ● likely unloading</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart short" id="c-tinv"></div><div class="table-wrap"></div>
+      <p class="note" id="tinv-note"></p>
+      <p class="src">Source: GIE ALSI</p>
     </article>
     <article class="card span-12">
       <div class="card-head"><h2>Latest by country</h2><span class="unit">GIE ALSI · utilisation = send-out / declared reference send-out</span></div>
@@ -61,7 +92,7 @@
 
 <script>
 (() => {
-  const { css, slot, num, signed, base, line, area, pairs, axisTooltip, chart, table, seriesTable, fillTable, fmtDay, fmtDayY, esc } = GD;
+  const { c, ca, uF, uS, uG, nf, css, slot, num, signed, base, line, area, pairs, axisTooltip, chart, table, seriesTable, fillTable, fmtDay, fmtDayY, esc } = GD;
   let DATA = null, DAYS = 180;
   GD.seg("range", (v) => { DAYS = +v; draw(); });
   const cut = (t) => { const c = t[t.length - 1] - DAYS * 864e5; let i = t.findIndex((x) => x > c); return i < 0 ? 0 : i; };
@@ -71,12 +102,12 @@
     if (!r) return;
     const k = (label, value, unit, sub) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}<small>${unit}</small></div><div class="sub">${sub}</div></div>`;
     document.getElementById("kpis").innerHTML = [
-      k("EU send-out", num(r.send_out, 0), "GWh/d", `gas day ${fmtDayY.format(new Date(r.gas_day))}`),
-      k("7-day average", num(r.avg_7d, 0), "GWh/d", ""),
-      k("30-day average", num(r.avg_30d, 0), "GWh/d", ""),
+      k("EU send-out", nf(r.send_out, 0), uF(), `gas day ${fmtDayY.format(new Date(r.gas_day))}`),
+      k("7-day average", nf(r.avg_7d, 0), uF(), ""),
+      k("30-day average", nf(r.avg_30d, 0), uF(), ""),
       k("Utilisation", num(r.utilisation_pct, 0), "%", "of declared reference send-out"),
-      k("Tank inventory", num(r.inventory_gwh / 1000, 1), "TWh", `${num(r.inventory_pct, 0)}% of declared maximum`),
-      k("Largest importer (30d)", esc(DATA.latest.find((x) => x.code !== "EU")?.name || "–"), "", `${num(DATA.latest.find((x) => x.code !== "EU")?.avg_30d, 0)} GWh/d`),
+      k("Tank inventory", nf(r.inventory_gwh / 1000, 1), uS(), `${num(r.inventory_pct, 0)}% of declared maximum`),
+      k("Largest importer (30d)", esc(DATA.latest.find((x) => x.code !== "EU")?.name || "–"), "", `${nf(DATA.latest.find((x) => x.code !== "EU")?.avg_30d, 0)} ${uF()}`),
     ].join("");
     document.getElementById("meta").textContent = `Latest gas day ${fmtDayY.format(new Date(r.gas_day))}`;
   }
@@ -85,13 +116,13 @@
     const C = DATA.countries; if (!C || !C.t) return;
     const i0 = cut(C.t), t = C.t.slice(i0);
     const top = C.order.slice(0, 7), rest = C.order.slice(7);
-    const named = top.map((c) => ({ name: C.names[c], data: C.send_out[c].slice(i0) }));
-    if (rest.length) named.push({ name: "Other", data: t.map((_, j) => rest.reduce((s, c) => s + (C.send_out[c][i0 + j] || 0), 0)) });
+    const named = top.map((k) => ({ name: C.names[k], data: ca(C.send_out[k].slice(i0)) }));
+    if (rest.length) named.push({ name: "Other", data: ca(t.map((_, j) => rest.reduce((s, k) => s + (C.send_out[k][i0 + j] || 0), 0))) });
     const o = base({});
-    o.tooltip.formatter = axisTooltip("GWh/d", 0);
+    o.tooltip.formatter = axisTooltip(uF, 0);
     o.series = named.map((s, i) => ({ ...area(s.name, pairs(t, s.data), s.name === "Other" ? css("--ref") : slot(i)), areaStyle: { color: s.name === "Other" ? css("--ref") : slot(i), opacity: 1 }, lineStyle: { width: 1, color: css("--surface-1") } }));
     chart("c-country").setOption(o, true);
-    fillTable("#card-country", seriesTable(t, named, 0));
+    fillTable("#card-country", seriesTable(t, named, GD.dp(0)));
   }
 
   function inventory() {
@@ -102,29 +133,29 @@
     o.tooltip.formatter = axisTooltip("% of DTMI", 1);
     o.series = [line("Inventory", pairs(t, E.inventory_pct.slice(i0)), slot(0))];
     chart("c-inv").setOption(o, true);
-    fillTable("#card-inv", seriesTable(t, [{ name: "Inventory %", data: E.inventory_pct.slice(i0) }, { name: "Inventory GWh", data: E.inventory_gwh.slice(i0) }]));
+    fillTable("#card-inv", seriesTable(t, [{ name: "Inventory %", data: E.inventory_pct.slice(i0) }, { name: `Inventory ${uG()}`, data: ca(E.inventory_gwh.slice(i0)) }]));
   }
 
   function season() {
     const f = DATA.eu.send_out_seasonal_7d; if (!f) return;
-    const md = f.md, lo = f.min, span = f.max.map((v, i) => v == null || lo[i] == null ? null : v - lo[i]);
+    const md = f.md, lo = ca(f.min), hi = ca(f.max), span = hi.map((v, i) => v == null || lo[i] == null ? null : v - lo[i]);
     const o = base({});
     o.xAxis = { type: "category", data: md, boundaryGap: false, axisTick: { show: false }, axisLine: { lineStyle: { color: css("--grid") } },
       axisLabel: { color: css("--text-muted"), fontSize: 11, interval: (i, v) => v.endsWith("-01"),
                    formatter: (v) => ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+v.slice(0, 2) - 1] } };
     o.tooltip.formatter = (ps) => `<div style="color:${css("--text-secondary")}">${fmtDay.format(new Date("2024-" + ps[0].axisValue + "T00:00:00Z"))}</div>` +
-      ps.filter((p) => p.seriesName !== "band-lo" && p.value != null && !p.seriesName.startsWith("5-year range")).map((p) => `${p.marker}${esc(p.seriesName)} <b>${num(p.value, 0)}</b>`).join("<br>");
+      ps.filter((p) => p.seriesName !== "band-lo" && p.value != null && !p.seriesName.startsWith("5-year range")).map((p) => `${p.marker}${esc(p.seriesName)} <b>${num(p.value, GD.dp(0))}</b>`).join("<br>") + `<div style="color:${css("--text-muted")}">${uF()}</div>`;
     o.series = [
       { name: "band-lo", type: "line", data: lo, stack: "band", showSymbol: false, lineStyle: { width: 0 }, silent: true },
       { name: "5-year range", type: "line", data: span, stack: "band", showSymbol: false, lineStyle: { width: 0 }, areaStyle: { color: css("--band") }, itemStyle: { color: css("--band") }, silent: true },
-      line("5-year average", f.avg, css("--ref"), { lineStyle: { width: 1.5, type: "dashed", color: css("--ref") } }),
-      line(String(f.current_year - 1), f.previous, slot(1)),
-      line(String(f.current_year), f.current, slot(0)),
+      line("5-year average", ca(f.avg), css("--ref"), { lineStyle: { width: 1.5, type: "dashed", color: css("--ref") } }),
+      line(String(f.current_year - 1), ca(f.previous), slot(1)),
+      line(String(f.current_year), ca(f.current), slot(0)),
     ];
     o.legend.data = [String(f.current_year), String(f.current_year - 1), "5-year average", "5-year range"];
     chart("c-season").setOption(o, true);
     fillTable("#card-season", seriesTable(md.map((x) => Date.parse("2024-" + x + "T00:00:00Z")),
-      [{ name: String(f.current_year), data: f.current }, { name: String(f.current_year - 1), data: f.previous }, { name: "5y avg", data: f.avg }], 0));
+      [{ name: String(f.current_year), data: ca(f.current) }, { name: String(f.current_year - 1), data: ca(f.previous) }, { name: "5y avg", data: ca(f.avg) }], GD.dp(0)));
   }
 
   function entsog() {
@@ -136,22 +167,89 @@
     // same colour per country as the ALSI chart (colour follows the entity)
     const colour = (c) => { const k = DATA.countries.order.indexOf(c); return k >= 0 && k < 7 ? slot(k) : css("--ref"); };
     const o = base({});
-    o.tooltip.formatter = axisTooltip("GWh/d", 0);
-    o.series = order.map((c) => line(DATA.countries.names[c] || c, pairs(t, L[c].slice(i0)), colour(c)));
+    o.tooltip.formatter = axisTooltip(uF, 0);
+    o.series = order.map((k) => line(DATA.countries.names[k] || k, pairs(t, ca(L[k].slice(i0))), colour(k)));
     chart("c-entsog").setOption(o, true);
-    fillTable("#card-entsog", seriesTable(t, order.map((c) => ({ name: c, data: L[c].slice(i0) })), 0));
+    fillTable("#card-entsog", seriesTable(t, order.map((k) => ({ name: k, data: ca(L[k].slice(i0)) })), GD.dp(0)));
   }
 
   function latest() {
     document.getElementById("t-latest").innerHTML = table([
       { label: "Country", key: "name", cls: "l" }, { label: "Gas day", key: "gas_day" },
-      { label: "Send-out GWh/d", key: "send_out", fmt: (v) => num(v, 0) }, { label: "7d avg", key: "avg_7d", fmt: (v) => num(v, 0) },
-      { label: "30d avg", key: "avg_30d", fmt: (v) => num(v, 0) }, { label: "Utilisation %", key: "utilisation_pct", fmt: (v) => num(v, 0) },
-      { label: "Inventory GWh", key: "inventory_gwh", fmt: (v) => num(v, 0) }, { label: "Inventory % of max", key: "inventory_pct", fmt: (v) => num(v, 0) },
+      { label: `Send-out ${uF()}`, key: "send_out", fmt: (v) => nf(v, 0) }, { label: "7d avg", key: "avg_7d", fmt: (v) => nf(v, 0) },
+      { label: "30d avg", key: "avg_30d", fmt: (v) => nf(v, 0) }, { label: "Utilisation %", key: "utilisation_pct", fmt: (v) => num(v, 0) },
+      { label: `Inventory ${uG()}`, key: "inventory_gwh", fmt: (v) => nf(v, 0) }, { label: "Inventory % of max", key: "inventory_pct", fmt: (v) => num(v, 0) },
     ], DATA.latest);
   }
 
-  function draw() { byCountry(); inventory(); entsog(); }
+
+  // ---------------------------------------------------------------- terminals
+  let TERM = null;
+  ["t-country", "t-active"].forEach((id) => document.getElementById(id).addEventListener("input", () => { TERM = null; terminals(); }));
+  function spark(arr) {
+    const v = arr.slice(-90), mx = Math.max(1, ...v.filter((x) => x != null));
+    const pts = v.map((x, i) => x == null ? null : `${(i / (v.length - 1) * 88 + 1).toFixed(1)},${(21 - x / mx * 19).toFixed(1)}`).filter(Boolean).join(" ");
+    return `<svg width="90" height="22" viewBox="0 0 90 22" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${slot(0)}" stroke-width="1.5"/></svg>`;
+  }
+  function terminals() {
+    const T = DATA.terminals;
+    if (!T || !T.list || !T.list.length) {
+      ["card-terms", "card-tstack", "card-tso", "card-tinv"].forEach((id) => document.getElementById(id).style.display = "none");
+      return;
+    }
+    const sel = document.getElementById("t-country");
+    if (sel.options.length <= 1) {
+      const cs = [...new Set(T.list.map((x) => x.country))].sort();
+      sel.innerHTML = '<option value="">All</option>' + cs.map((k) => `<option value="${k}">${esc(DATA.countries.names?.[k] || k)}</option>`).join("");
+    }
+    const ctry = sel.value, active = document.getElementById("t-active").checked;
+    const rows = T.list.filter((x) => (!ctry || x.country === ctry) && (!active || (x.avg_30d || 0) > 0 || (x.inventory_gwh || 0) > 0));
+    if (!TERM || !rows.some((x) => x.eic === TERM)) TERM = rows[0]?.eic;
+    document.getElementById("t-terms").innerHTML = rows.length ? GD.table([
+      { label: "Terminal", key: "name", cls: "l", html: (r) => `<a href="#card-tso" data-eic="${esc(r.eic)}" style="color:inherit${r.eic === TERM ? ";font-weight:600" : ""}">${esc(r.name)}</a>` },
+      { label: "Country", key: "country", cls: "l" }, { label: "Type", key: "type", cls: "l" },
+      { label: `Send-out ${uF()}`, key: "send_out", fmt: (v) => nf(v, 0) }, { label: "7d", key: "avg_7d", fmt: (v) => nf(v, 0) },
+      { label: "30d", key: "avg_30d", fmt: (v) => nf(v, 0) }, { label: "Util. %", key: "utilisation_pct", fmt: (v) => num(v, 0) },
+      { label: "Tank %", key: "inventory_pct", fmt: (v) => num(v, 0) }, { label: "Days of cover", key: "days_cover", fmt: (v) => num(v, 1) },
+      { label: "Unloads 30d", key: "unloads_30d" }, { label: "90-day send-out", key: "eic", html: (r) => spark(r.send_out_series) },
+      { label: "Gas day", key: "gas_day" },
+    ], rows) : '<p class="empty">No terminals match.</p>';
+    document.querySelectorAll("#t-terms [data-eic]").forEach((a) => a.addEventListener("click", (e) => { TERM = a.dataset.eic; terminals(); }));
+
+    // stacked send-out by terminal (country or all)
+    const t = T.t, i0 = cut(t), tt = t.slice(i0);
+    const top = rows.slice(0, 7), rest = rows.slice(7);
+    const named = top.map((x) => ({ name: x.name, data: ca(x.send_out_series.slice(i0)) }));
+    if (rest.length) named.push({ name: "Other", data: ca(tt.map((_, j) => rest.reduce((s, x) => s + (x.send_out_series[i0 + j] || 0), 0))) });
+    document.getElementById("tstack-title").textContent = `Send-out by terminal: ${ctry ? (DATA.countries.names?.[ctry] || ctry) : "all countries"}`;
+    const o = base({});
+    o.tooltip.formatter = axisTooltip(uF, 0);
+    o.series = named.map((x, i) => ({ ...area(x.name, pairs(tt, x.data), x.name === "Other" ? css("--ref") : slot(i)),
+      areaStyle: { color: x.name === "Other" ? css("--ref") : slot(i), opacity: 1 }, lineStyle: { width: 1, color: css("--surface-1") } }));
+    chart("c-tstack").setOption(o, true);
+    fillTable("#card-tstack", seriesTable(tt, named, GD.dp(0)));
+
+    // detail for one terminal
+    const r = T.list.find((x) => x.eic === TERM); if (!r) return;
+    document.getElementById("tso-title").textContent = `${r.name}: send-out`;
+    document.getElementById("tinv-title").textContent = `${r.name}: tank inventory`;
+    document.getElementById("tinv-note").textContent = T.note || "";
+    const so = ca(r.send_out_series.slice(i0)), inv = ca(r.inventory_series.slice(i0));
+    const o1 = base({ legend: false });
+    o1.tooltip.formatter = axisTooltip(uF, 0);
+    o1.series = [line("Send-out", pairs(tt, so), slot(0))];
+    chart("c-tso").setOption(o1, true);
+    fillTable("#card-tso", seriesTable(tt, [{ name: `Send-out ${uF()}`, data: so }], GD.dp(0)));
+    const o2 = base({ legend: false });
+    o2.tooltip.formatter = axisTooltip(uG, 0);
+    const unl = r.unloads.filter((u) => u.t >= tt[0]);
+    o2.series = [line("Inventory", pairs(tt, inv), slot(0), { areaStyle: { color: slot(0), opacity: 0.12 } }),
+      { name: "Likely unloading", type: "scatter", symbolSize: 9, itemStyle: { color: css("--text-primary"), borderColor: css("--surface-1"), borderWidth: 2 },
+        data: unl.map((u) => [u.t, inv[tt.indexOf(u.t)] ?? null]), z: 5 }];
+    chart("c-tinv").setOption(o2, true);
+    fillTable("#card-tinv", seriesTable(tt, [{ name: `Inventory ${uG()}`, data: inv }], GD.dp(0)));
+  }
+  function draw() { byCountry(); inventory(); entsog(); terminals(); }
 
   GD.boot("lng.html", "lng", async (data) => {
     DATA = data;

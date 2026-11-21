@@ -20,7 +20,7 @@
   <section class="kpis" id="kpis" aria-label="Summary"></section>
   <section class="grid">
     <article class="card span-12" id="card-timeline">
-      <div class="card-head"><h2>Unavailable capacity in active and planned messages</h2><span class="unit">GWh/d · next 90 days</span>
+      <div class="card-head"><h2>Unavailable capacity in active and planned messages</h2><span class="unit"><span data-u="F">GWh/d</span> · next 90 days</span>
         <span class="tools"><button data-toggle-table>Table</button></span></div>
       <div class="chart short" id="c-timeline"></div><div class="table-wrap"></div>
       <p class="note" id="t-note"></p>
@@ -43,7 +43,7 @@
 
 <script>
 (() => {
-  const { css, slot, num, base, pairs, chart, table, seriesTable, fillTable, fmtDT, esc } = GD;
+  const { c, ca, uF, nf, css, slot, num, base, pairs, chart, table, seriesTable, fillTable, fmtDT, esc } = GD;
   let DATA = null;
   const now = () => Date.now();
   const fmt = (s) => s ? fmtDT.format(new Date(s)) : "open";
@@ -62,7 +62,7 @@
       k("Active now", active.length, "", "messages in force"),
       k("Unplanned, active", unplanned.length, "", "outages not announced in advance"),
       k("Upcoming", upcoming.length, "", "start later"),
-      k("Capacity unavailable today", num(offNow, 0), "GWh/d", "sum of messages in energy units"),
+      k("Capacity unavailable today", nf(offNow, 0), uF(), "sum of messages in energy units"),
     ].join("");
     document.getElementById("meta").textContent = `${ev.length} messages`;
   }
@@ -73,11 +73,11 @@
     document.getElementById("t-note").textContent = DATA.notes?.[1] || "";
     if (!T.t || !keys.length) { document.getElementById("c-timeline").innerHTML = '<p class="empty">No messages yet.</p>'; return; }
     const o = base({});
-    o.tooltip.formatter = GD.axisTooltip("GWh/d unavailable", 0);
-    o.series = keys.map((k, i) => ({ name: k, type: "bar", stack: "u", data: pairs(T.t, T[k]), itemStyle: { color: slot(i) }, barCategoryGap: "15%" }));
+    o.tooltip.formatter = GD.axisTooltip(() => `${uF()} unavailable`, 0);
+    o.series = keys.map((k, i) => ({ name: k, type: "bar", stack: "u", data: pairs(T.t, ca(T[k])), itemStyle: { color: slot(i) }, barCategoryGap: "15%" }));
     o.series[0].markLine = { silent: true, symbol: "none", lineStyle: { color: css("--text-muted"), type: "dashed" }, label: { formatter: "today", color: css("--text-muted"), fontSize: 11 }, data: [{ xAxis: now() }] };
     chart("c-timeline").setOption(o, true);
-    fillTable("#card-timeline", seriesTable(T.t, keys.map((k) => ({ name: k, data: T[k] })), 0));
+    fillTable("#card-timeline", seriesTable(T.t, keys.map((k) => ({ name: k, data: ca(T[k]) })), GD.dp(0)));
   }
 
   function list() {
@@ -93,7 +93,7 @@
       { label: "Start", key: "start", fmt: fmt }, { label: "End", key: "stop", fmt: fmt },
       { label: "Asset", key: "asset", cls: "wrap" }, { label: "Operator / participant", key: "participant", cls: "wrap" },
       { label: "Zone", key: "zone", cls: "l" }, { label: "Dir.", key: "direction", cls: "l" },
-      { label: "Unavailable", key: "unavailable", html: (r) => r.gwh_d != null ? `${num(r.gwh_d, 1)} GWh/d` : `${num(r.unavailable, 1)} ${esc(r.unit || "")}` },
+      { label: "Unavailable", key: "unavailable", html: (r) => r.gwh_d != null ? `${nf(r.gwh_d, 1)} ${uF()}` : `${num(r.unavailable, 1)} ${esc(r.unit || "")}` },
       { label: "Reason / remarks", key: "reason", cls: "wrap", html: (r) => esc([r.reason, r.remarks].filter(Boolean).join(" — ")) },
       { label: "Published", key: "published", fmt: fmt },
     ], rows) : '<p class="empty">No messages match.</p>';

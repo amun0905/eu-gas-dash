@@ -269,7 +269,54 @@ def build_lng(store: Store, registry: dict[str, DatasetSpec], now: datetime | No
                           "inventory_gwh": _r(eu["inventory_gwh"].get(ld), 0),
                           "inventory_pct": _r(eu["inventory_gwh"].get(ld) / eu["dtmi_gwh"].get(ld) * 100, 0) if eu["dtmi_gwh"].get(ld) else None})
     out["latest"] = latest
+    if "alsi_terminals" in registry:
+        out["terminals"] = build_terminals(store, registry["alsi_terminals"], now)
     return out
+
+
+def build_terminals(store: Store, spec: DatasetSpec, now) -> dict:
+    """One row per LNG terminal: latest figures, a 90-day sparkline, a year of send-out and inventory,
+    and days where a jump in inventory suggests a cargo was unloaded."""
+    df = store.read(spec, now - timedelta(days=400), now + timedelta(days=1))
+    if df.empty:
+        return {}
+    df = df.sort_values("gasDay")
+    end = df["gasDay"].max()
+    window = _day_index(end - timedelta(days=364), end)
+    terms = []
+    for eic, d in df.groupby("entity", sort=False):
+        d = d.set_index("gasDay")
+        d = d[~d.index.duplicated(keep="last")]
+        so, inv = d["sendOut"].astype(float), d["inventory_gwh"].astype(float)
+        dtmi, dtrs = d["dtmi_gwh"].astype(float), d["dtrs"].astype(float)
+        if so.dropna().empty and inv.dropna().empty:
+            continue
+        ld = so.dropna().index.max() if so.notna().any() else inv.dropna().index.max()
+        a7 = so.loc[ld - pd.Timedelta(days=6): ld].mean()
+        a30 = so.loc[ld - pd.Timedelta(days=29): ld].mean()
+        # cargo received ~ change in tank inventory + what was sent out that day
+        received = inv.diff() + so.fillna(0)
+        cap = dtmi.get(ld)
+        thresh = max(150.0, 0.15 * cap) if pd.notna(cap) and cap else 150.0
+        unl = received[(received >= thresh) & (received.index >= window[0])]
+        last = d.iloc[-1]
+        terms.append({
+            "eic": eic, "name": last.get("name"), "country": last.get("country"), "company": last.get("company"),
+            "type": last.get("facilityType"), "gas_day": ld.date().isoformat(), "status": d["status"].get(ld),
+            "send_out": _r(so.get(ld), 0), "avg_7d": _r(a7, 0), "avg_30d": _r(a30, 0),
+            "utilisation_pct": _r(so.get(ld) / dtrs.get(ld) * 100, 0) if pd.notna(dtrs.get(ld)) and dtrs.get(ld) else None,
+            "inventory_gwh": _r(inv.get(ld), 0),
+            "inventory_pct": _r(inv.get(ld) / cap * 100, 0) if pd.notna(cap) and cap else None,
+            "days_cover": _r(inv.get(ld) / a7, 1) if pd.notna(inv.get(ld)) and a7 and a7 > 0 else None,
+            "unloads_30d": int((unl.index > ld - pd.Timedelta(days=30)).sum()),
+            "send_out_series": _arr(so.reindex(window), 0),
+            "inventory_series": _arr(inv.reindex(window), 0),
+            "unloads": [{"t": int(t.timestamp() * 1000), "gwh": _r(v, 0)} for t, v in unl.items()],
+        })
+    terms.sort(key=lambda r: -(r["avg_30d"] or 0))
+    return {"t": _ms(window), "list": terms,
+            "note": "Likely unloading = a day when tank inventory rose by more than send-out explains "
+                    "(at least 150 GWh or 15% of tank capacity). Inferred from ALSI data, not from ship tracking."}
 
 
 # ---------------------------------------------------------------- flows (ENTSOG + National Gas)

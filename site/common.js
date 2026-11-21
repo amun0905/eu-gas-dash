@@ -4,6 +4,24 @@
   const params = new URLSearchParams(location.search);
   const BASE = (params.get("data") || cfg.DATA_BASE || "").replace(/\/$/, "");
 
+  // ---- energy <-> volume units -------------------------------------------------------------
+  // Continental data (ENTSOG, GIE) is published in energy; 10.55 kWh/m3 is the common European
+  // reference. GB data (National Gas) was converted from mcm at 10.97, so dividing by 10.97
+  // gives back National Gas's own published volumes.
+  const KWH_PER_M3 = { eu: 10.55, gb: 10.97 };
+  let VOL = false;
+  try { VOL = localStorage.getItem("gasdash-unit") === "volume"; } catch (e) { /* storage blocked */ }
+  const c = (v, src = "eu") => (v == null || !VOL ? v : v / KWH_PER_M3[src]);        // GWh/d->mcm/d, TWh->bcm, GWh->mcm
+  const ca = (arr, src = "eu") => (VOL ? arr.map((v) => c(v, src)) : arr);
+  const uF = () => (VOL ? "mcm/d" : "GWh/d"), uS = () => (VOL ? "bcm" : "TWh"), uG = () => (VOL ? "mcm" : "GWh");
+  const dp = (d) => (VOL ? d + 1 : d);                                                // one more decimal in volume
+  const nf = (v, d = 0, src = "eu") => num(c(v, src), dp(d));
+  const sf = (v, d = 0, src = "eu") => signed(c(v, src), dp(d));
+  function applyUnits() {
+    document.querySelectorAll("[data-u]").forEach((el) => { el.textContent = { F: uF(), S: uS(), G: uG() }[el.dataset.u]; });
+  }
+  let rerender = null;
+
   const PAGES = [["index.html", "Storage"], ["lng.html", "LNG"], ["flows.html", "Flows"],
                  ["events.html", "Events"], ["auctions.html", "Auctions"], ["sources.html", "Sources"]];
 
@@ -23,6 +41,19 @@
     const nav = PAGES.map(([href, name]) => `<a href="${href}${location.search}"${href === active ? ' aria-current="page"' : ""}>${name}</a>`).join("");
     const el = document.querySelector("header");
     el.insertAdjacentHTML("afterbegin", `<h1>European Gas</h1><nav class="tabs" aria-label="Pages">${nav}</nav>`);
+    if (!["auctions.html", "sources.html"].includes(active)) {
+      el.insertAdjacentHTML("beforeend", `<div class="seg" role="group" aria-label="Units" id="unit-toggle" title="Volumes use ${KWH_PER_M3.eu} kWh/m³ (GB: National Gas published volumes)">
+        <button data-v="energy" aria-pressed="${!VOL}">GWh</button><button data-v="volume" aria-pressed="${VOL}">mcm</button></div>`);
+      document.getElementById("unit-toggle").addEventListener("click", (e) => {
+        const b = e.target.closest("button"); if (!b) return;
+        VOL = b.dataset.v === "volume";
+        try { localStorage.setItem("gasdash-unit", b.dataset.v); } catch (err) { /* ignore */ }
+        document.querySelectorAll("#unit-toggle button").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+        applyUnits();
+        if (rerender) rerender();
+      });
+    }
+    applyUnits();
   }
 
   async function load(name) {
@@ -74,8 +105,8 @@
       if (!ps.length) return "";
       const t = ps[0].axisValue;
       const rows = ps.filter((p) => p.value && p.value[1] != null)
-        .map((p) => `<div style="display:flex;gap:10px;justify-content:space-between"><span>${p.marker}${esc(p.seriesName)}</span><b>${num(p.value[1], d)}</b></div>`).join("");
-      return `<div style="min-width:180px"><div style="margin-bottom:4px;color:${css("--text-secondary")}">Gas day ${fmtDayY.format(t)}</div>${rows}<div style="color:${css("--text-muted")};margin-top:4px">${unit}</div></div>`;
+        .map((p) => `<div style="display:flex;gap:10px;justify-content:space-between"><span>${p.marker}${esc(p.seriesName)}</span><b>${num(p.value[1], typeof unit === "function" ? dp(d) : d)}</b></div>`).join("");
+      return `<div style="min-width:180px"><div style="margin-bottom:4px;color:${css("--text-secondary")}">Gas day ${fmtDayY.format(t)}</div>${rows}<div style="color:${css("--text-muted")};margin-top:4px">${typeof unit === "function" ? unit() : unit}</div></div>`;
     };
   }
 
@@ -140,12 +171,16 @@
 
   async function boot(active, name, render) {
     header(active);
+    let last = null;
+    rerender = () => { if (last) { applyUnits(); render(last); } };
     const run = async () => {
       try {
         const data = await load(name);
+        last = data;
         banner("");
         render(data);
-        footer(data);
+        applyUnits();
+        footer(data, VOL ? `Volumes at ${KWH_PER_M3.eu} kWh/m³ (GB: as published by National Gas).` : "");
       } catch (err) {
         console.error(err);
         banner(`Could not load data (${err.message}). The pipeline may not have run yet.`);
@@ -155,6 +190,6 @@
     if (cfg.REFRESH_MINUTES) setInterval(run, cfg.REFRESH_MINUTES * 60e3);
   }
 
-  window.GD = { BASE, css, slot, num, signed, esc, fmtDay, fmtDayY, fmtDT, base, line, area, pairs, axisTooltip, chart,
+  window.GD = { c, ca, uF, uS, uG, nf, sf, dp, isVol: () => VOL, KWH_PER_M3, BASE, css, slot, num, signed, esc, fmtDay, fmtDayY, fmtDT, base, line, area, pairs, axisTooltip, chart,
                 table, seriesTable, fillTable, seg, boot, load, banner, footer };
 })();

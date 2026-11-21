@@ -22,11 +22,15 @@ files that a static website (GitHub Pages) reads.
 | Tab | Shows | Sources |
 |---|---|---|
 | Storage | EU / country fill vs 5-year range, fill by country, net injection, heating degree days | GIE AGSI+, Open-Meteo |
-| LNG | Send-out by country, tank inventory, send-out vs 5-year range, ENTSOG LNG-point cross-check | GIE ALSI, ENTSOG |
+| LNG | Send-out by country, tank inventory, send-out vs 5-year range, ENTSOG LNG-point cross-check, terminal table (utilisation, days of cover, likely unloadings) with drill-down | GIE ALSI, ENTSOG |
 | Flows | Norway landings (incl. Langeled into GB), Russian routes (TurkStream), other pipeline imports, flows to Ukraine, key interconnectors, GB NTS supply & demand | ENTSOG, National Gas |
 | Events | Active and planned unavailability messages, capacity-offline timeline | ENTSOG UMMs, GIE IIP |
 | Auctions | Capacity auctions that cleared with a premium | ENTSOG CMP data |
 | Sources | Every source, its terms, and how fresh each dataset is | all |
+
+A **GWh | mcm** toggle in the header switches Storage, LNG, Flows and Events between energy and volume.
+Continental figures use 10.55 kWh/m³ (the common European reference); GB figures show National Gas's
+own published volumes. The choice is remembered per browser.
 
 Every chart names its source; GIE requires a visible credit and gets one on every page.
 Prices are deliberately left out (no free official API for TTF/THE).
@@ -37,6 +41,7 @@ Prices are deliberately left out (no free official API for TTF/THE).
 |---|---|---|---|
 | `agsi_storage` | GIE AGSI+ | storage by country + EU, 2016→ | daily, D+1 ~19:30 CET |
 | `alsi_lng` | GIE ALSI | LNG send-out & inventory by country + EU, 2018→ | daily |
+| `alsi_terminals` | GIE ALSI | send-out & tank inventory for each LNG terminal, 2022→ | daily |
 | `gie_umm` | GIE IIP | REMIT UMMs from SSOs/LSOs/TSOs | event-driven |
 | `entsog_flows` | ENTSOG | physical flow + nomination at the points in `config/entsog_points.yaml`, 2021→ | daily |
 | `entsog_umm` | ENTSOG | TSO urgent market messages | event-driven |
