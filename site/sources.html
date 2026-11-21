@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>European Gas · Sources</title>
+<link rel="icon" href="data:,">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="common.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="banner" id="banner" role="alert"></div>
+<header>
+  <span class="meta" id="meta">Loading…</span>
+</header>
+
+<main>
+  <section class="grid">
+    <article class="card span-12">
+      <div class="card-head"><h2>Data sources</h2></div>
+      <div class="table-wrap always">
+        <table>
+          <thead><tr><th class="l">Source</th><th class="wrap">What we use</th><th class="wrap">Access &amp; terms</th></tr></thead>
+          <tbody>
+            <tr><td class="l"><a href="https://agsi.gie.eu/" target="_blank" rel="noopener">GIE AGSI+</a></td>
+              <td class="wrap">Daily gas in storage, fill %, injection and withdrawal for the EU and each country (Storage tab).</td>
+              <td class="wrap">Free API with a personal key. Data may be reused; GIE must be credited as the source.</td></tr>
+            <tr><td class="l"><a href="https://alsi.gie.eu/" target="_blank" rel="noopener">GIE ALSI</a></td>
+              <td class="wrap">Daily LNG send-out, tank inventory and declared capacities by country (LNG tab).</td>
+              <td class="wrap">Same key and terms as AGSI+.</td></tr>
+            <tr><td class="l"><a href="https://iip.gie.eu/" target="_blank" rel="noopener">GIE IIP</a></td>
+              <td class="wrap">Urgent market messages from storage, LNG and transmission operators (Events tab).</td>
+              <td class="wrap">Same key and terms as AGSI+.</td></tr>
+            <tr><td class="l"><a href="https://transparency.entsog.eu/" target="_blank" rel="noopener">ENTSOG Transparency Platform</a></td>
+              <td class="wrap">Daily physical flows and nominations at selected points (Flows tab, LNG cross-check), TSO urgent market messages (Events tab) and CMP auction premiums (Auctions tab).</td>
+              <td class="wrap">Free public API, no key.</td></tr>
+            <tr><td class="l"><a href="https://data.nationalgas.com/" target="_blank" rel="noopener">National Gas Data Portal</a></td>
+              <td class="wrap">GB NTS supply by source (incl. Langeled from Norway), demand and seasonal normal demand (Flows tab).</td>
+              <td class="wrap">Free public data. Volumes converted from mcm at 10.97 GWh/mcm.</td></tr>
+            <tr><td class="l"><a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a></td>
+              <td class="wrap">Daily mean temperature for eight cities, for heating degree days (Storage tab).</td>
+              <td class="wrap">Free for non-commercial use, CC BY 4.0.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note">Prices are not shown: there is no free official API for TTF or other hub prices.</p>
+    </article>
+    <article class="card span-12">
+      <div class="card-head"><h2>Data freshness</h2><span class="unit">updated by the pipeline on every run</span></div>
+      <div class="table-wrap always" id="t-fresh"></div>
+      <p class="note">"Late" means the newest data is older than expected for that dataset; the pipeline also emails an alert. Event-driven datasets (messages, auctions) can be quiet for days.</p>
+    </article>
+  </section>
+</main>
+<footer id="footer"></footer>
+
+<script>
+(() => {
+  const { num, table, fmtDT, esc } = GD;
+  const SRC = { gie: "GIE", entsog: "ENTSOG", nationalgas: "National Gas", openmeteo: "Open-Meteo" };
+  GD.boot("sources.html", "sources", (data) => {
+    const status = (r) => !r.configured ? '<span class="pill off">not configured</span>' : r.stale ? '<span class="pill stale">late</span>' : '<span class="pill ok">up to date</span>';
+    const d = (v) => v ? fmtDT.format(new Date(v)) : "–";
+    document.getElementById("t-fresh").innerHTML = table([
+      { label: "Dataset", key: "dataset", cls: "l" }, { label: "Source", key: "source", cls: "l", fmt: (v) => SRC[v] || v },
+      { label: "What", key: "description", cls: "wrap" }, { label: "From", key: "from", fmt: (v) => v ? v.slice(0, 10) : "–" },
+      { label: "Newest", key: "to", fmt: (v) => v ? v.slice(0, 10) : "–" }, { label: "Rows", key: "rows", fmt: (v) => num(v, 0) },
+      { label: "Last fetched", key: "updated_at", fmt: d }, { label: "Status", key: "stale", html: status },
+    ], data.datasets);
+    const late = data.datasets.filter((r) => r.stale).length;
+    document.getElementById("meta").textContent = late ? `${late} dataset(s) late` : "All datasets up to date";
+  });
+})();
+</script>
+</body>
+</html>

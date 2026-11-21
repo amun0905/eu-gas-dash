@@ -1,0 +1,36 @@
+name: probe
+
+# First-run diagnostics, no writes. Actions tab -> probe -> Run workflow, then read the log:
+#   1. `gasdash points` checks every ENTSOG key in config/entsog_points.yaml against ENTSOG's live list
+#   2. `gasdash probe`  fetches 3 recent days from every dataset and prints columns + sample rows
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GIE_API_KEY: ${{ secrets.GIE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install .
+      - name: ENTSOG points check
+        continue-on-error: true
+        run: gasdash points --csv entsog_points_check.csv
+      - name: Probe every dataset
+        continue-on-error: true
+        run: gasdash probe
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: entsog-points-check
+          path: entsog_points_check.csv
+          if-no-files-found: ignore

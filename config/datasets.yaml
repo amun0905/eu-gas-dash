@@ -1,0 +1,269 @@
+# Dataset registry: one entry per table the pipeline maintains.
+# Adding a dataset is (usually) just a new block here.
+#
+# Fields
+#   source        client that fetches it: gie | entsog | nationalgas | openmeteo
+#   query         window   -> the client is asked for [start, end) and splits it itself
+#   time_column   UTC timestamp used for monthly partitions and incremental updates
+#                 (daily data uses the gas day / day at 00:00 UTC)
+#   keys          columns that identify a row (de-duplication). Later fetches overwrite earlier ones,
+#                 or, with version_column, the row with the latest value there wins.
+#   chunk_days    size of each request window
+#   lookback_days every update re-fetches this far back from the newest stored row (revisions, late data)
+#   horizon_days  fetch this far into the future (forecasts, planned outages)
+#   start         where a full backfill begins
+#   max_staleness_hours  `gasdash status` fails the run if the newest row is older than this
+#   options       source-specific settings
+#   columns       expected columns and types. Only these are kept, so upstream schema drift can't break the store.
+
+datasets:
+
+  # ============================================================ GIE AGSI+ : gas storage
+  agsi_storage:
+    description: Gas storage by country and EU total (AGSI+), daily
+    source: gie
+    query: window
+    time_column: gasDay
+    keys: [gasDay, entity]
+    chunk_days: 400
+    lookback_days: 10          # operators revise the last few days
+    start: "2016-01-01"        # enough for a 5-year range plus the current year
+    max_staleness_hours: 60    # D+1 publication at ~19:30 CET; weekends are normal
+    options:
+      platform: agsi
+      # eu = EU aggregate; GB and UA report as non-EU countries
+      entities: [eu, DE, IT, FR, NL, AT, HU, CZ, SK, PL, ES, BE, RO, BG, HR, DK, LV, PT, SE, GB, UA]
+    columns:
+      gasDay: datetime
+      entity: str
+      name: str
+      gasInStorage: float
+      workingGasVolume: float
+      full: float
+      injection: float
+      withdrawal: float
+      netWithdrawal: float
+      injectionCapacity: float
+      withdrawalCapacity: float
+      consumption: float
+      trend: float
+      status: str
+      updatedAt: datetime
+
+  # ============================================================ GIE ALSI : LNG terminals
+  alsi_lng:
+    description: LNG send-out and inventory by country and EU total (ALSI), daily
+    source: gie
+    query: window
+    time_column: gasDay
+    keys: [gasDay, entity]
+    chunk_days: 400
+    lookback_days: 10
+    start: "2018-01-01"
+    max_staleness_hours: 60
+    options:
+      platform: alsi
+      entities: [eu, BE, HR, FI, FR, DE, GR, IT, LT, NL, PL, PT, ES, GB]
+    columns:
+      gasDay: datetime
+      entity: str
+      name: str
+      inventory_gwh: float
+      inventory_lng: float
+      dtmi_gwh: float
+      dtmi_lng: float
+      sendOut: float
+      dtrs: float
+      status: str
+      updatedAt: datetime
+
+  # ============================================================ GIE IIP : REMIT UMMs from SSOs/LSOs/TSOs
+  gie_umm:
+    description: Urgent market messages on the GIE Inside Information Platform (storage, LNG, transmission)
+    source: gie
+    query: window
+    time_column: published
+    keys: [messageId]
+    chunk_days: 31
+    lookback_days: 7
+    start: "2025-01-01"
+    max_staleness_hours: 200   # event-driven: quiet weeks are possible
+    options:
+      platform: iip
+    columns:
+      published: datetime
+      messageId: str
+      messageType: str
+      unavailabilityType: str
+      eventStatus: str
+      eventStart: datetime
+      eventStop: datetime
+      direction: str
+      reason: str
+      remarks: str
+      reportingEntity: str
+      reportingEntityType: str
+      asset: str
+      balancingZone: str
+      unavailableCapacity: float
+      availableCapacity: float
+      technicalCapacity: float
+      unit: str
+
+  # ============================================================ ENTSOG : physical flows at selected points
+  entsog_flows:
+    description: Daily physical flows and nominations at the points in config/entsog_points.yaml (ENTSOG)
+    source: entsog
+    query: window
+    time_column: gasDay
+    keys: [gasDay, pointDirection, indicator]
+    version_column: lastUpdateDateTime
+    chunk_days: 31
+    lookback_days: 5
+    horizon_days: 1            # nominations for the next gas day appear in the afternoon
+    start: "2021-01-01"
+    max_staleness_hours: 36
+    options:
+      kind: flows
+      indicators: [Physical Flow, Nomination]
+    columns:
+      gasDay: datetime
+      pointDirection: str
+      indicator: str
+      value: float
+      unit: str
+      pointLabel: str
+      operatorLabel: str
+      directionKey: str
+      flowStatus: str
+      lastUpdateDateTime: datetime
+
+  # ============================================================ ENTSOG : urgent market messages
+  entsog_umm:
+    description: Urgent market messages published by TSOs on the ENTSOG Transparency Platform
+    source: entsog
+    query: window
+    time_column: publicationDateTime
+    keys: [messageId, versionNumber]
+    chunk_days: 31
+    lookback_days: 7
+    horizon_days: 1
+    start: "2025-01-01"
+    max_staleness_hours: 200
+    options:
+      kind: umm
+      endpoint: urgentMarketMessages
+    columns:
+      publicationDateTime: datetime
+      messageId: str
+      versionNumber: int
+      isLatestVersion: str
+      marketParticipantName: str
+      messageType: str
+      eventStatus: str
+      eventType: str
+      eventStart: datetime
+      eventStop: datetime
+      unavailabilityType: str
+      unavailabilityReason: str
+      unitMeasure: str
+      balancingZoneName: str
+      affectedAssetName: str
+      direction: str
+      unavailableCapacity: float
+      availableCapacity: float
+      technicalCapacity: float
+      remarks: str
+      lastUpdateDateTime: datetime
+
+  # ============================================================ ENTSOG : CMP auction premiums
+  entsog_cmp_auctions:
+    description: Capacity auction results with a premium (CMP data) from the ENTSOG Transparency Platform
+    source: entsog
+    query: window
+    time_column: auctionFrom
+    keys: [auctionFrom, operatorKey, pointKey, directionKey, capacityFrom, capacityTo]
+    version_column: lastUpdateDateTime
+    chunk_days: 31
+    lookback_days: 7
+    start: "2024-01-01"
+    max_staleness_hours: 2000  # sparse by nature: only auctions that cleared with a premium appear
+    options:
+      kind: cmp_auctions
+      endpoint: cmpAuctions
+    columns:
+      auctionFrom: datetime
+      auctionTo: datetime
+      capacityFrom: datetime
+      capacityTo: datetime
+      operatorKey: str
+      operatorLabel: str
+      pointKey: str
+      pointLabel: str
+      directionKey: str
+      unit: str
+      auctionPremium: float
+      clearedPrice: float
+      reservePrice: float
+      bookingPlatformLabel: str
+      lastUpdateDateTime: datetime
+
+  # ============================================================ National Gas : GB NTS supply and demand
+  gb_nts:
+    description: GB NTS supply by source, demand and storage stock (National Gas Data Portal), daily
+    source: nationalgas
+    query: window
+    time_column: gasDay
+    keys: [gasDay, item]
+    chunk_days: 31
+    lookback_days: 7
+    horizon_days: 1
+    start: "2021-01-01"
+    max_staleness_hours: 54
+    options:
+      items:            # publication IDs from data.nationalgas.com "Find gas data"
+        PUBOBJ635: {name: NTS input total, unit: mcm}
+        PUBOBJ627: {name: Beach terminals (incl. Langeled), unit: mcm}
+        PUBOBJ570: {name: Norway - Easington Langeled, unit: mcm}
+        PUBOBJ629: {name: LNG importation, unit: mcm}
+        PUBOBJ630: {name: Storage withdrawal, unit: mcm}
+        PUBOBJ628: {name: Interconnector imports, unit: mcm}
+        PUBOB637: {name: NTS demand actual, unit: mcm}
+        PUBOB2535: {name: NTS seasonal normal demand, unit: mcm}
+        PUBOBJ330: {name: GB storage stock, unit: kWh}
+    columns:
+      gasDay: datetime
+      item: str
+      name: str
+      value: float
+      unit: str
+      generatedAt: str
+
+  # ============================================================ Open-Meteo : temperatures for HDDs
+  weather_temp:
+    description: Daily mean temperature for major gas-demand cities (Open-Meteo), for heating degree days
+    source: openmeteo
+    query: window
+    time_column: day
+    keys: [day, city]
+    chunk_days: 366
+    lookback_days: 20          # >= forecast days + archive lag, so the archive replaces forecasts
+    horizon_days: 9
+    start: "2016-01-01"
+    max_staleness_hours: 48
+    options:
+      cities:
+        - {name: Berlin, country: DE, lat: 52.52, lon: 13.41}
+        - {name: Milan, country: IT, lat: 45.46, lon: 9.19}
+        - {name: Paris, country: FR, lat: 48.86, lon: 2.35}
+        - {name: Amsterdam, country: NL, lat: 52.37, lon: 4.90}
+        - {name: London, country: GB, lat: 51.51, lon: -0.13}
+        - {name: Vienna, country: AT, lat: 48.21, lon: 16.37}
+        - {name: Warsaw, country: PL, lat: 52.23, lon: 21.01}
+        - {name: Madrid, country: ES, lat: 40.42, lon: -3.70}
+    columns:
+      day: datetime
+      city: str
+      country: str
+      tmean: float
+      is_forecast: int

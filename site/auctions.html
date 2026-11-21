@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>European Gas · Auctions</title>
+<link rel="icon" href="data:,">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="common.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="banner" id="banner" role="alert"></div>
+<header>
+  <span class="meta" id="meta">Loading…</span>
+</header>
+
+<main>
+  <section class="grid">
+    <article class="card span-4" id="card-points">
+      <div class="card-head"><h2>Points with premium auctions</h2><span class="unit">count · last 12 months</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart" id="c-points"></div><div class="table-wrap"></div>
+      <p class="src">Source: ENTSOG Transparency Platform (CMP data)</p>
+    </article>
+    <article class="card span-8">
+      <div class="card-head"><h2>Recent auctions that cleared above the reserve price</h2><span class="unit" id="count"></span></div>
+      <div class="filters"><input type="search" id="f-q" placeholder="Filter by point or operator…" aria-label="Filter auctions"></div>
+      <div class="table-wrap always" id="t-auctions"></div>
+      <p class="note" id="note"></p>
+    </article>
+  </section>
+</main>
+<footer id="footer"></footer>
+
+<script>
+(() => {
+  const { css, slot, num, base, chart, table, fillTable, fmtDT, fmtDayY, esc } = GD;
+  let DATA = null;
+  document.getElementById("f-q").addEventListener("input", list);
+  const day = (s) => s ? fmtDayY.format(new Date(s)) : "–";
+
+  function points() {
+    const rows = (DATA.by_point || []).slice(0, 15).reverse();
+    if (!rows.length) { document.getElementById("c-points").innerHTML = '<p class="empty">No premium auctions reported in the last 12 months.</p>'; return; }
+    const o = base({ legend: false });
+    o.grid = { left: 170, right: 30, top: 10, bottom: 24 };
+    o.xAxis = { type: "value", minInterval: 1, axisLabel: { color: css("--text-muted"), fontSize: 11 }, splitLine: { lineStyle: { color: css("--grid") } } };
+    o.yAxis = { type: "category", data: rows.map((r) => `${r.point} (${r.direction})`), axisTick: { show: false }, axisLine: { show: false },
+                axisLabel: { color: css("--text-secondary"), fontSize: 11, width: 160, overflow: "truncate" } };
+    o.tooltip = { ...o.tooltip, trigger: "item", formatter: (p) => { const r = rows[p.dataIndex]; return `<b>${esc(r.point)}</b> (${esc(r.direction)})<br>${r.n} auctions with a premium<br>last ${day(r.last)}<br>max premium ${num(r.max_premium, 4)}`; } };
+    o.series = [{ type: "bar", data: rows.map((r) => r.n), itemStyle: { color: slot(0), borderRadius: [0, 4, 4, 0] }, barWidth: "60%",
+                  label: { show: true, position: "right", color: css("--text-secondary"), fontSize: 11 } }];
+    chart("c-points").setOption(o, true);
+    fillTable("#card-points", table([{ label: "Point", key: "point", cls: "l" }, { label: "Dir.", key: "direction", cls: "l" }, { label: "Auctions", key: "n" },
+      { label: "Max premium", key: "max_premium", fmt: (v) => num(v, 4) }, { label: "Last", key: "last", fmt: day }], DATA.by_point));
+  }
+
+  function list() {
+    const q = document.getElementById("f-q").value.trim().toLowerCase();
+    const rows = (DATA.auctions || []).filter((r) => !q || [r.point, r.operator].some((x) => (x || "").toLowerCase().includes(q)));
+    document.getElementById("count").textContent = `${rows.length} auctions`;
+    document.getElementById("t-auctions").innerHTML = rows.length ? table([
+      { label: "Auction", key: "auction", fmt: (v) => v ? fmtDT.format(new Date(v)) : "–" },
+      { label: "Capacity from", key: "capacity_from", fmt: day }, { label: "to", key: "capacity_to", fmt: day },
+      { label: "Point", key: "point", cls: "wrap" }, { label: "Operator", key: "operator", cls: "l" }, { label: "Dir.", key: "direction", cls: "l" },
+      { label: "Reserve", key: "reserve", fmt: (v) => num(v, 4) }, { label: "Premium", key: "premium", fmt: (v) => num(v, 4) },
+      { label: "Cleared", key: "cleared", fmt: (v) => num(v, 4) }, { label: "Unit", key: "unit", cls: "l" }, { label: "Platform", key: "platform", cls: "l" },
+    ], rows) : '<p class="empty">No premium auctions reported for this period. That is normal: most capacity clears at the reserve price.</p>';
+  }
+
+  GD.boot("auctions.html", "auctions", (data) => {
+    DATA = data;
+    document.getElementById("note").textContent = (data.notes || []).join(" ");
+    document.getElementById("meta").textContent = `${(data.auctions || []).length} premium auctions in the last 12 months`;
+    points(); list();
+  });
+})();
+</script>
+</body>
+</html>

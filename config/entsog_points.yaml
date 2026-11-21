@@ -1,0 +1,166 @@
+# ENTSOG points followed on the Flows tab.
+#
+# Each series is one line on a chart. It is the sum of one or more ENTSOG point-directions,
+# given either explicitly (keys) or by a rule (match). Values are GWh/d after conversion.
+#
+#   keys:   operatorKey + pointKey + direction, e.g. DE-TSO-0005ITP-00081entry.
+#           Use {key: ..., sign: -1} to subtract (net flows = entry - exit at one operator).
+#   match:  regex filters on ENTSOG's /operatorPointDirections list:
+#             point_label, point_type, operator, connected (connected operators),
+#             direction (entry|exit), country (TSO country code or list), exit_label, sign
+#
+# Readings are taken on the EU side of each border and from ONE operator per physical flow,
+# so nothing is counted twice. `gasdash points` checks every key against ENTSOG's live list,
+# shows what each match rule picks up, and flags keys that ENTSOG has renamed or retired.
+# Keys below were taken from ENTSOG's own data; check `gasdash points` after the first run.
+
+series:
+
+  # ---------------------------------------------------------------- Norway (Gassco landings)
+  - id: no_emden
+    group: Norway
+    label: Emden (DE + NL)          # Norsea Gas Terminal / Europipe I & Norpipe
+    keys:
+      - DE-TSO-0005ITP-00081entry   # Emden (EPT1) (GUD)
+      - DE-TSO-0009ITP-00080entry   # Emden (EPT1) (OGE)
+      - DE-TSO-0002ITP-00105entry   # Emden (EPT1) (Thyssengas)
+      - NL-TSO-0001ITP-00160entry   # Emden (EPT1) (GTS)
+  - id: no_dornum
+    group: Norway
+    label: Dornum (DE)              # Europipe II
+    keys:
+      - DE-TSO-0005ITP-00188entry   # Dornum / NETRA (GUD)
+      - DE-TSO-0009ITP-00126entry   # Dornum / NETRA (OGE)
+      - DE-TSO-0009ITP-00525entry   # Dornum GASPOOL (OGE) - check with `gasdash points` it isn't a duplicate
+  - id: no_zeebrugge
+    group: Norway
+    label: Zeebrugge ZPT (BE)       # Zeepipe
+    keys: [BE-TSO-0001ITP-00106entry]
+  - id: no_dunkerque
+    group: Norway
+    label: Dunkerque (FR)           # Franpipe
+    keys: [FR-TSO-0003ITP-00045entry]
+  - id: no_nybro
+    group: Norway
+    label: Nybro (DK, Baltic Pipe)  # Europipe II tie-in -> Denmark -> Poland
+    keys: [DK-TSO-0001ITP-00097entry]
+
+  # ---------------------------------------------------------------- Russian routes
+  - id: ru_turkstream
+    group: Russia
+    label: TurkStream - Strandzha 2 (BG)
+    keys: [BG-TSO-0001ITP-00549entry]
+  - id: ru_turkstream_rs
+    group: Russia
+    label: TurkStream onward - Kireevo (BG > RS)
+    keys: [BG-TSO-0001ITP-00529exit]
+  - id: ru_turkstream_hu
+    group: Russia
+    label: TurkStream onward - Kiskundorozsma-2 (RS > HU)
+    keys: [HU-TSO-0001ITP-10013entry]
+  - id: ru_kotlovka
+    group: Russia
+    label: Kotlovka (BY > LT, Kaliningrad transit)
+    keys: [LT-TSO-0001ITP-00085entry]
+  - id: ru_sakiai
+    group: Russia
+    label: Sakiai (LT > Kaliningrad)
+    keys: [LT-TSO-0001ITP-00050exit]
+  - id: ru_ukraine_legacy
+    group: Russia
+    label: Velke Kapusany (UA > SK, transit ended Jan 2025)
+    keys: [SK-TSO-0001ITP-00117entry]
+
+  # ---------------------------------------------------------------- Other pipeline imports
+  - id: im_tap
+    group: Other imports
+    label: TAP - Melendugno (IT)    # Azerbaijan
+    keys: [IT-TSO-0001ITP-00008entry]
+  - id: im_transmed
+    group: Other imports
+    label: TransMed - Mazara del Vallo (IT)   # Algeria
+    keys: [IT-TSO-0001ITP-00093entry]
+  - id: im_greenstream
+    group: Other imports
+    label: Greenstream - Gela (IT)  # Libya
+    keys: [IT-TSO-0001ITP-00074entry]
+  - id: im_medgaz
+    group: Other imports
+    label: Medgaz - Almeria (ES)    # Algeria
+    keys: [ES-TSO-0006ITP-00048entry]
+  - id: im_tarifa
+    group: Other imports
+    label: Tarifa (MA > ES, net)    # Maghreb-Europe pipeline, now mostly reverse flow
+    keys:
+      - ES-TSO-0006ITP-00082entry
+      - {key: ES-TSO-0006ITP-00082exit, sign: -1}
+
+  # ---------------------------------------------------------------- Flows to Ukraine
+  - id: ua_slovakia
+    group: To Ukraine
+    label: Budince (SK > UA)
+    keys: [SK-TSO-0001ITP-00421exit]
+  - id: ua_hungary
+    group: To Ukraine
+    label: VIP Bereg (HU > UA)
+    keys: [HU-TSO-0001ITP-10006exit]
+  - id: ua_poland
+    group: To Ukraine
+    label: Hermanowice (PL > UA)
+    keys: [PL-TSO-0002ITP-10008exit]
+
+  # ---------------------------------------------------------------- Key intra-EU interconnectors
+  # Net flows read at one operator: positive = flow in the direction named in the label.
+  - id: ic_nl_de
+    group: Interconnectors
+    label: NL > DE (VIP TTF-THE H)
+    keys:
+      - NL-TSO-0001ITP-10012exit
+      - {key: NL-TSO-0001ITP-10012entry, sign: -1}
+  - id: ic_be_de
+    group: Interconnectors
+    label: BE > DE (VIP THE-ZTP)
+    keys:
+      - BE-TSO-0001ITP-00614exit
+      - {key: BE-TSO-0001ITP-00614entry, sign: -1}
+  - id: ic_de_cz
+    group: Interconnectors
+    label: CZ > DE (VIP Waidhaus)
+    keys:
+      - DE-TSO-0009ITP-00538entry
+      - {key: DE-TSO-0009ITP-00538exit, sign: -1}
+  - id: ic_sk_at
+    group: Interconnectors
+    label: SK > AT (Baumgarten)
+    keys:
+      - SK-TSO-0001ITP-00168exit
+      - {key: SK-TSO-0001ITP-00168entry, sign: -1}
+  - id: ic_at_it
+    group: Interconnectors
+    label: AT > IT (Tarvisio)
+    keys: [IT-TSO-0001ITP-00040entry]
+  - id: ic_ch_it
+    group: Interconnectors
+    label: CH > IT (Passo Gries)
+    keys: [IT-TSO-0001ITP-00136entry]
+  - id: ic_es_fr
+    group: Interconnectors
+    label: ES > FR (VIP Pirineos)
+    keys:
+      - ES-TSO-0006ITP-00304exit
+      - {key: ES-TSO-0006ITP-00304entry, sign: -1}
+  - id: ic_be_gb
+    group: Interconnectors
+    label: BE > GB (IUK, Zeebrugge IZT)
+    keys:
+      - BE-TSO-0001ITP-00061exit
+      - {key: BE-TSO-0001ITP-00061entry, sign: -1}
+
+  # ---------------------------------------------------------------- LNG send-out into grids
+  # Picked up by type, so new terminals and FSRUs appear automatically. Grouped by country in the export.
+  - id: lng_entsog
+    group: LNG
+    label: LNG send-out (ENTSOG)
+    match:
+      point_type: "LNG Entry point"
+      direction: entry

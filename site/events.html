@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>European Gas · Events</title>
+<link rel="icon" href="data:,">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="common.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="banner" id="banner" role="alert"></div>
+<header>
+  <span class="meta" id="meta">Loading…</span>
+</header>
+
+<main>
+  <section class="kpis" id="kpis" aria-label="Summary"></section>
+  <section class="grid">
+    <article class="card span-12" id="card-timeline">
+      <div class="card-head"><h2>Unavailable capacity in active and planned messages</h2><span class="unit">GWh/d · next 90 days</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart short" id="c-timeline"></div><div class="table-wrap"></div>
+      <p class="note" id="t-note"></p>
+      <p class="src">Sources: ENTSOG Transparency Platform (TSO UMMs); GIE Inside Information Platform (IIP)</p>
+    </article>
+    <article class="card span-12">
+      <div class="card-head"><h2>Messages</h2><span class="unit" id="count"></span></div>
+      <div class="filters">
+        <label for="f-src">Source</label><select id="f-src"><option value="">All</option></select>
+        <label for="f-type">Type</label><select id="f-type"><option value="">All</option><option>Planned</option><option>Unplanned</option></select>
+        <label for="f-when">Show</label><select id="f-when"><option value="live">Active &amp; upcoming</option><option value="all">All (incl. last 14 days published)</option></select>
+        <input type="search" id="f-q" placeholder="Search asset, operator, zone…" aria-label="Search messages">
+      </div>
+      <div class="table-wrap always" id="t-events"></div>
+    </article>
+  </section>
+</main>
+<footer id="footer"></footer>
+
+<script>
+(() => {
+  const { css, slot, num, base, pairs, chart, table, seriesTable, fillTable, fmtDT, esc } = GD;
+  let DATA = null;
+  const now = () => Date.now();
+  const fmt = (s) => s ? fmtDT.format(new Date(s)) : "open";
+  ["f-src", "f-type", "f-when", "f-q"].forEach((id) => document.getElementById(id).addEventListener("input", list));
+
+  function kpis() {
+    const ev = DATA.events, n = now();
+    const active = ev.filter((e) => e.start && Date.parse(e.start) <= n && (!e.stop || Date.parse(e.stop) >= n));
+    const upcoming = ev.filter((e) => e.start && Date.parse(e.start) > n);
+    const unplanned = active.filter((e) => /unplanned/i.test(e.type || ""));
+    const T = DATA.timeline || {};
+    const today = T.t ? T.t.findIndex((x) => x >= n - 864e5) : -1;
+    const offNow = today >= 0 ? Object.keys(T).filter((k) => k !== "t").reduce((s, k) => s + (T[k][today] || 0), 0) : null;
+    const k = (label, value, unit, sub) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}<small>${unit}</small></div><div class="sub">${sub}</div></div>`;
+    document.getElementById("kpis").innerHTML = [
+      k("Active now", active.length, "", "messages in force"),
+      k("Unplanned, active", unplanned.length, "", "outages not announced in advance"),
+      k("Upcoming", upcoming.length, "", "start later"),
+      k("Capacity unavailable today", num(offNow, 0), "GWh/d", "sum of messages in energy units"),
+    ].join("");
+    document.getElementById("meta").textContent = `${ev.length} messages`;
+  }
+
+  function timeline() {
+    const T = DATA.timeline || {};
+    const keys = Object.keys(T).filter((k) => k !== "t");
+    document.getElementById("t-note").textContent = DATA.notes?.[1] || "";
+    if (!T.t || !keys.length) { document.getElementById("c-timeline").innerHTML = '<p class="empty">No messages yet.</p>'; return; }
+    const o = base({});
+    o.tooltip.formatter = GD.axisTooltip("GWh/d unavailable", 0);
+    o.series = keys.map((k, i) => ({ name: k, type: "bar", stack: "u", data: pairs(T.t, T[k]), itemStyle: { color: slot(i) }, barCategoryGap: "15%" }));
+    o.series[0].markLine = { silent: true, symbol: "none", lineStyle: { color: css("--text-muted"), type: "dashed" }, label: { formatter: "today", color: css("--text-muted"), fontSize: 11 }, data: [{ xAxis: now() }] };
+    chart("c-timeline").setOption(o, true);
+    fillTable("#card-timeline", seriesTable(T.t, keys.map((k) => ({ name: k, data: T[k] })), 0));
+  }
+
+  function list() {
+    const src = document.getElementById("f-src").value, typ = document.getElementById("f-type").value;
+    const when = document.getElementById("f-when").value, q = document.getElementById("f-q").value.trim().toLowerCase();
+    const n = now();
+    const rows = DATA.events.filter((e) => (!src || e.source === src) && (!typ || (e.type || "").toLowerCase() === typ.toLowerCase())
+      && (when === "all" || !e.stop || Date.parse(e.stop) >= n)
+      && (!q || [e.asset, e.participant, e.zone, e.remarks, e.reason].some((x) => (x || "").toLowerCase().includes(q))));
+    document.getElementById("count").textContent = `${rows.length} shown`;
+    document.getElementById("t-events").innerHTML = rows.length ? table([
+      { label: "Source", key: "source", cls: "l" }, { label: "Type", key: "type", cls: "l" },
+      { label: "Start", key: "start", fmt: fmt }, { label: "End", key: "stop", fmt: fmt },
+      { label: "Asset", key: "asset", cls: "wrap" }, { label: "Operator / participant", key: "participant", cls: "wrap" },
+      { label: "Zone", key: "zone", cls: "l" }, { label: "Dir.", key: "direction", cls: "l" },
+      { label: "Unavailable", key: "unavailable", html: (r) => r.gwh_d != null ? `${num(r.gwh_d, 1)} GWh/d` : `${num(r.unavailable, 1)} ${esc(r.unit || "")}` },
+      { label: "Reason / remarks", key: "reason", cls: "wrap", html: (r) => esc([r.reason, r.remarks].filter(Boolean).join(" — ")) },
+      { label: "Published", key: "published", fmt: fmt },
+    ], rows) : '<p class="empty">No messages match.</p>';
+  }
+
+  GD.boot("events.html", "events", (data) => {
+    DATA = data;
+    const s = document.getElementById("f-src");
+    s.innerHTML = '<option value="">All</option>' + [...new Set(data.events.map((e) => e.source))].map((x) => `<option>${esc(x)}</option>`).join("");
+    kpis(); timeline(); list();
+  });
+})();
+</script>
+</body>
+</html>

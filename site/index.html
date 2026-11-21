@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>European Gas · Storage</title>
+<link rel="icon" href="data:,">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="common.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="banner" id="banner" role="alert"></div>
+<header>
+  <span class="meta" id="meta">Loading…</span>
+  <span class="spacer"></span>
+  <label class="muted-chip" for="entity">Storage area</label>
+  <select id="entity" aria-label="Country or EU"></select>
+</header>
+
+<main>
+  <section class="kpis" id="kpis" aria-label="Latest values"></section>
+
+  <section class="grid">
+    <article class="card span-8" id="card-season">
+      <div class="card-head"><h2 id="season-title">Storage fill vs 5-year range</h2><span class="unit">% of working gas volume</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart" id="c-season"></div><div class="table-wrap"></div>
+      <p class="note">Shaded band = min–max of the previous five years on the same date; dashed line = their average.</p>
+      <p class="src">Source: GIE AGSI+</p>
+    </article>
+
+    <article class="card span-4" id="card-countries">
+      <div class="card-head"><h2>Fill by country</h2><span class="unit">% · latest gas day</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart" id="c-countries"></div><div class="table-wrap"></div>
+      <p class="note">Marker = 5-year average for the same date. Click a bar to open that country.</p>
+      <p class="src">Source: GIE AGSI+</p>
+    </article>
+
+    <article class="card span-6" id="card-net">
+      <div class="card-head"><h2 id="net-title">Net injection</h2><span class="unit">GWh/d · + injection / − withdrawal</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart short" id="c-net"></div><div class="table-wrap"></div>
+      <p class="note">Injection minus withdrawal as reported by storage operators, last 13 months.</p>
+      <p class="src">Source: GIE AGSI+</p>
+    </article>
+
+    <article class="card span-6" id="card-hdd">
+      <div class="card-head"><h2>Heating degree days</h2><span class="unit">HDD · city average</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart short" id="c-hdd"></div><div class="table-wrap"></div>
+      <p class="note" id="hdd-note"></p>
+      <p class="src">Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)</p>
+    </article>
+
+    <article class="card span-12" id="card-table">
+      <div class="card-head"><h2>Latest by storage area</h2><span class="unit">AGSI+ · status E = estimated, C = confirmed</span></div>
+      <div class="table-wrap always" id="t-latest"></div>
+    </article>
+  </section>
+</main>
+<footer id="footer"></footer>
+
+<script>
+(() => {
+  const { css, slot, num, signed, base, line, pairs, axisTooltip, chart, table, seriesTable, fillTable, fmtDay, fmtDayY, esc } = GD;
+  let DATA = null, ENT = new URLSearchParams(location.search).get("area") || "EU";
+  const sel = document.getElementById("entity");
+  sel.addEventListener("change", () => { ENT = sel.value; draw(); });
+
+  function kpis() {
+    const r = DATA.latest.find((x) => x.code === ENT);
+    if (!r) { document.getElementById("kpis").innerHTML = ""; return; }
+    const k = (label, value, unit, sub) => `<div class="kpi"><div class="label">${label}</div><div class="value">${value}<small>${unit}</small></div><div class="sub">${sub}</div></div>`;
+    document.getElementById("kpis").innerHTML = [
+      k(`${esc(r.name)} storage`, num(r.full, 1), "%", `gas day ${fmtDayY.format(new Date(r.gas_day))} · status ${esc(r.status || "–")}`),
+      k("Gas in storage", num(r.twh, 1), "TWh", `of ${num(r.wgv_twh, 0)} TWh working gas volume`),
+      k("Change, 1 day", signed(r.d1_pp, 2), "pp", "percentage points of capacity"),
+      k("Change, 7 days", signed(r.d7_pp, 1), "pp", "percentage points"),
+      k("vs 5-year average", signed(r.vs_5y_pp, 1), "pp", `vs last year ${signed(r.vs_last_year_pp, 1)} pp`),
+      k("Net injection", signed(r.net_injection_gwh, 0), "GWh/d", "negative = net withdrawal"),
+    ].join("");
+    document.getElementById("meta").textContent = `Latest gas day ${fmtDayY.format(new Date(r.gas_day))}`;
+  }
+
+  function season() {
+    const S = DATA.series[ENT]; if (!S) return;
+    const f = S.full_seasonal, md = f.md;
+    const name = DATA.entities.find((e) => e.code === ENT)?.name || ENT;
+    document.getElementById("season-title").textContent = `${name}: storage fill vs 5-year range`;
+    const lo = f.min, span = f.max.map((v, i) => v == null || lo[i] == null ? null : v - lo[i]);
+    const o = base({ unit: "%" });
+    o.xAxis = { type: "category", data: md, boundaryGap: false, axisTick: { show: false }, axisLine: { lineStyle: { color: css("--grid") } },
+      axisLabel: { color: css("--text-muted"), fontSize: 11, interval: (i, v) => v.endsWith("-01"),
+                   formatter: (v) => ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+v.slice(0, 2) - 1] } };
+    o.yAxis.max = 100; o.yAxis.min = 0;
+    o.tooltip.formatter = (ps) => {
+      const d = ps[0].axisValue, i = ps[0].dataIndex;
+      const row = (lab, v, m = "") => v == null ? "" : `<div style="display:flex;gap:10px;justify-content:space-between"><span>${m}${lab}</span><b>${num(v, 1)}%</b></div>`;
+      const m = (c) => `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;background:${c}"></span>`;
+      return `<div style="min-width:190px"><div style="color:${css("--text-secondary")};margin-bottom:4px">${fmtDay.format(new Date("2024-" + d + "T00:00:00Z"))}</div>` +
+        row(String(f.current_year), f.current[i], m(slot(0))) + row(String(f.current_year - 1), f.previous[i], m(slot(1))) +
+        row("5y average", f.avg[i], m(css("--ref"))) + row("5y min", f.min[i]) + row("5y max", f.max[i]) + "</div>";
+    };
+    const yrs = f.band_years.length ? `${f.band_years[0]}–${f.band_years[f.band_years.length - 1]}` : "";
+    o.series = [
+      { name: "band-lo", type: "line", data: lo, stack: "band", showSymbol: false, lineStyle: { width: 0 }, silent: true, legendHoverLink: false, tooltip: { show: false } },
+      { name: `5-year range ${yrs}`, type: "line", data: span, stack: "band", showSymbol: false, lineStyle: { width: 0 }, areaStyle: { color: css("--band") }, itemStyle: { color: css("--band") }, silent: true },
+      line("5-year average", f.avg, css("--ref"), { lineStyle: { width: 1.5, type: "dashed", color: css("--ref") } }),
+      line(String(f.current_year - 1), f.previous, slot(1)),
+      line(String(f.current_year), f.current, slot(0), { lineStyle: { width: 2.5, color: slot(0) } }),
+    ];
+    o.legend.data = [String(f.current_year), String(f.current_year - 1), "5-year average", `5-year range ${yrs}`];
+    chart("c-season").setOption(o, true);
+    fillTable("#card-season", seriesTable(md.map((x) => Date.parse("2024-" + x + "T00:00:00Z")),
+      [{ name: String(f.current_year), data: f.current }, { name: String(f.current_year - 1), data: f.previous }, { name: "5y avg", data: f.avg }, { name: "5y min", data: f.min }, { name: "5y max", data: f.max }]));
+  }
+
+  function countries() {
+    const rows = DATA.latest.filter((r) => r.full != null).slice().sort((a, b) => a.full - b.full);
+    const o = base({ legend: false });
+    o.grid = { left: 110, right: 40, top: 10, bottom: 24 };
+    o.xAxis = { type: "value", max: 100, axisLabel: { color: css("--text-muted"), fontSize: 11 }, splitLine: { lineStyle: { color: css("--grid") } } };
+    o.yAxis = { type: "category", data: rows.map((r) => r.name), axisTick: { show: false }, axisLine: { show: false },
+                axisLabel: { color: css("--text-secondary"), fontSize: 11.5, fontWeight: (v) => 400 } };
+    o.tooltip = { ...o.tooltip, trigger: "item", formatter: (p) => {
+      const r = rows[p.dataIndex];
+      return `<b>${esc(r.name)}</b><br>Fill ${num(r.full, 1)}% · ${num(r.twh, 1)} TWh<br>vs 5y avg ${signed(r.vs_5y_pp, 1)} pp<br>Gas day ${esc(r.gas_day)} (${esc(r.status || "–")})`; } };
+    o.series = [
+      { type: "bar", data: rows.map((r) => ({ value: r.full, itemStyle: { color: r.code === ENT ? slot(0) : css("--ref"), borderRadius: [0, 4, 4, 0] } })), barWidth: "62%",
+        label: { show: true, position: "right", color: css("--text-secondary"), fontSize: 11, formatter: (p) => num(p.value, 0) } },
+      { type: "scatter", data: rows.map((r) => r.vs_5y_pp == null ? null : r.full - r.vs_5y_pp), symbol: "rect", symbolSize: [2, 14],
+        itemStyle: { color: css("--text-primary") }, tooltip: { show: false }, z: 5 },
+    ];
+    const c = chart("c-countries"); c.setOption(o, true);
+    c.off("click"); c.on("click", (p) => { const r = rows[p.dataIndex]; if (r) { ENT = r.code; sel.value = ENT; draw(); } });
+    const h = Math.max(340, rows.length * 22 + 40) + "px";
+    document.getElementById("c-countries").style.height = h; c.resize();
+    document.getElementById("c-season").style.height = h; chart("c-season").resize();
+    fillTable("#card-countries", table([{ label: "Area", key: "name", cls: "l" }, { label: "Fill %", key: "full", fmt: (v) => num(v, 1) },
+      { label: "vs 5y pp", key: "vs_5y_pp", fmt: (v) => signed(v, 1) }], rows.slice().reverse()));
+  }
+
+  function net() {
+    const S = DATA.series[ENT]; if (!S) return;
+    const name = DATA.entities.find((e) => e.code === ENT)?.name || ENT;
+    document.getElementById("net-title").textContent = `${name}: net injection`;
+    const o = base({ legend: false, unit: "GWh/d" });
+    o.tooltip.formatter = axisTooltip("GWh/d (+ injection, − withdrawal)", 0);
+    o.series = [{ name: "Net injection", type: "bar", barCategoryGap: "10%",
+      data: S.t.map((t, i) => { const v = S.net_injection_gwh[i]; return { value: [t, v], itemStyle: { color: v >= 0 ? css("--div-neg") : css("--div-pos") } }; }) }];
+    chart("c-net").setOption(o, true);
+    fillTable("#card-net", seriesTable(S.t, [{ name: "Net injection GWh/d", data: S.net_injection_gwh }, { name: "Gas in storage TWh", data: S.twh }], 0));
+  }
+
+  function hdd() {
+    const W = DATA.weather || {};
+    if (!W.t) { document.getElementById("c-hdd").innerHTML = '<p class="empty">No weather data yet.</p>'; return; }
+    document.getElementById("hdd-note").textContent = W.note || "";
+    const o = base({ unit: "HDD" });
+    o.tooltip.formatter = axisTooltip("heating degree days", 1);
+    const fcStart = W.t[W.is_forecast.indexOf(1)];
+    o.series = [line("Heating degree days", pairs(W.t, W.hdd), slot(0)),
+      line("10-year normal", pairs(W.t, W.normal), css("--ref"), { lineStyle: { width: 1.5, type: "dashed", color: css("--ref") } })];
+    if (fcStart) o.series[0].markArea = { silent: true, itemStyle: { color: css("--nom-shade") }, data: [[{ xAxis: fcStart, name: "Forecast", label: { color: css("--text-muted"), fontSize: 11 } }, { xAxis: W.t[W.t.length - 1] }]] };
+    chart("c-hdd").setOption(o, true);
+    fillTable("#card-hdd", seriesTable(W.t, [{ name: "HDD", data: W.hdd }, { name: "Normal", data: W.normal }]));
+  }
+
+  function latestTable() {
+    document.getElementById("t-latest").innerHTML = table([
+      { label: "Area", key: "name", cls: "l" }, { label: "Gas day", key: "gas_day" }, { label: "Fill %", key: "full", fmt: (v) => num(v, 1) },
+      { label: "TWh", key: "twh", fmt: (v) => num(v, 1) }, { label: "Capacity TWh", key: "wgv_twh", fmt: (v) => num(v, 0) },
+      { label: "1d pp", key: "d1_pp", fmt: (v) => signed(v, 2) }, { label: "7d pp", key: "d7_pp", fmt: (v) => signed(v, 1) },
+      { label: "vs 5y pp", key: "vs_5y_pp", fmt: (v) => signed(v, 1) }, { label: "vs last year pp", key: "vs_last_year_pp", fmt: (v) => signed(v, 1) },
+      { label: "Net injection GWh/d", key: "net_injection_gwh", fmt: (v) => signed(v, 0) }, { label: "Status", key: "status" },
+    ], DATA.latest);
+  }
+
+  function draw() { kpis(); season(); countries(); net(); hdd(); }
+
+  GD.boot("index.html", "storage", (data) => {
+    DATA = data;
+    if (!data.entities.length) { GD.banner("No storage data yet: add the GIE_API_KEY secret and run the backfill."); return; }
+    if (!data.entities.some((e) => e.code === ENT)) ENT = "EU";
+    sel.innerHTML = data.entities.map((e) => `<option value="${e.code}">${esc(e.name)}</option>`).join("");
+    sel.value = ENT;
+    draw(); latestTable();
+  });
+})();
+</script>
+</body>
+</html>
