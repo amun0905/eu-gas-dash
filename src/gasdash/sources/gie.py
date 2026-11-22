@@ -142,7 +142,8 @@ class GieClient:
     def facilities(self, platform: str = "alsi") -> list[dict]:
         """Every facility (LNG terminal / storage site) from the platform's public listing:
         [{company: {name, eic, country, facilities: [{name, type, eic, country, company, operational_*}]}}]"""
-        if getattr(self, "_facilities", None) is None:
+        cache = self.__dict__.setdefault("_facilities", {})
+        if platform not in cache:
             r = self.session.get(LISTING_URL[platform], timeout=self.timeout)
             if r.status_code >= 400:
                 raise RuntimeError(f"GIE {platform} listing -> {r.status_code}: {r.text[:200]}")
@@ -174,8 +175,8 @@ class GieClient:
             if not out:
                 raise RuntimeError(f"GIE {platform} listing returned no facilities")
             log.info("GIE %s listing: %d facilities", platform, len(out))
-            self._facilities = out
-        return self._facilities
+            cache[platform] = out
+        return cache[platform]
 
     # ------------------------------------------------------------------ parsing
     @staticmethod
@@ -273,17 +274,19 @@ class GieClient:
                 log.info("%s %s %s..%s: %d rows", spec.name, entity, d_from, d_to, len(df))
                 if not df.empty:
                     yield df
-        elif platform == "alsi_facility":
+        elif platform in ("alsi_facility", "agsi_facility"):
+            base = platform.split("_")[0]
+            parse = self.parse_agsi if base == "agsi" else self.parse_alsi
             d_from = pd.Timestamp(start).date().isoformat()
             d_to = (pd.Timestamp(end) - pd.Timedelta(seconds=1)).date().isoformat()
-            for f in self.facilities("alsi"):
+            for f in self.facilities(base):
                 if f["end"] and str(f["end"])[:10] < d_from:   # closed before this window
                     continue
                 if f["start"] and str(f["start"])[:10] > d_to:  # not yet operating
                     continue
                 params = {"country": f["country"].lower(), "company": f["company"], "facility": f["eic"],
                           "from": d_from, "to": d_to}
-                frames = [self.parse_alsi(rows, f["eic"]) for rows in self.pages("alsi", params)]
+                frames = [parse(rows, f["eic"]) for rows in self.pages(base, params)]
                 df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
                 if df.empty:
                     continue

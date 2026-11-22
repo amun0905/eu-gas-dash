@@ -21,7 +21,7 @@ files that a static website (GitHub Pages) reads.
 
 | Tab | Shows | Sources |
 |---|---|---|
-| Storage | EU / country fill vs 5-year range, fill by country, net injection, heating degree days | GIE AGSI+, Open-Meteo |
+| Storage | EU / country fill vs 5-year range, fill by country, net injection, heating degree days, storage sites (table, stack by site, site vs last year) | GIE AGSI+, Open-Meteo |
 | LNG | Send-out by country, tank inventory, send-out vs 5-year range, ENTSOG LNG-point cross-check, terminal table (utilisation, days of cover, likely unloadings) with drill-down | GIE ALSI, ENTSOG |
 | Flows | Norway landings (incl. Langeled into GB), Russian routes (TurkStream), other pipeline imports, flows to Ukraine, key interconnectors, GB NTS supply & demand | ENTSOG, National Gas |
 | Events | Active and planned unavailability messages, capacity-offline timeline | ENTSOG UMMs, GIE IIP |
@@ -40,6 +40,7 @@ Prices are deliberately left out (no free official API for TTF/THE).
 | name | source | what | cadence |
 |---|---|---|---|
 | `agsi_storage` | GIE AGSI+ | storage by country + EU, 2016→ | daily, D+1 ~19:30 CET |
+| `agsi_facilities` | GIE AGSI+ | storage for each storage site, 2024→ | daily, refreshed in the evening only |
 | `alsi_lng` | GIE ALSI | LNG send-out & inventory by country + EU, 2018→ | daily |
 | `alsi_terminals` | GIE ALSI | send-out & tank inventory for each LNG terminal, 2022→ | daily |
 | `gie_umm` | GIE IIP | REMIT UMMs from SSOs/LSOs/TSOs | event-driven |

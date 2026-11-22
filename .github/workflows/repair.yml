@@ -9,7 +9,7 @@ on:
       datasets:
         description: "Space-separated dataset names"
         required: true
-        default: "agsi_storage alsi_lng alsi_terminals"
+        default: "agsi_storage alsi_lng alsi_terminals agsi_facilities"
 
 concurrency:
   group: data-store

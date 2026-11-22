@@ -51,6 +51,41 @@ datasets:
       status: str
       updatedAt: datetime
 
+  # ============================================================ GIE AGSI+ : individual storage sites
+  agsi_facilities:
+    description: Gas storage for each storage site (AGSI+), daily
+    source: gie
+    query: window
+    time_column: gasDay
+    keys: [gasDay, entity]
+    chunk_days: 400
+    lookback_days: 10
+    start: "2024-01-01"        # this year vs last year per site; the 5-year view stays at country level
+    max_staleness_hours: 60
+    options:
+      platform: agsi_facility  # sites come from AGSI's public listing
+      gap_key: entity
+      # ~150 sites x 1 call each: only refresh after GIE's evening publications (19:30 and 23:00 CET),
+      # i.e. the 20:17 and 22:17 UTC runs. Naming the dataset explicitly always runs it.
+      update_hours_utc: [20, 21, 22, 23]   # a delayed run still lands in the window
+    columns:
+      gasDay: datetime
+      entity: str              # facility EIC code
+      name: str
+      country: str
+      company: str
+      facilityType: str
+      gasInStorage: float
+      workingGasVolume: float
+      full: float
+      injection: float
+      withdrawal: float
+      netWithdrawal: float
+      injectionCapacity: float
+      withdrawalCapacity: float
+      status: str
+      updatedAt: datetime
+
   # ============================================================ GIE ALSI : LNG terminals
   alsi_lng:
     description: LNG send-out and inventory by country and EU total (ALSI), daily

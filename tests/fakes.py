@@ -208,7 +208,21 @@ FACILITIES = [
 ]
 
 
+STORAGE_SITES = [
+    {"name": "SEFE Storage GmbH", "short_name": "SEFE Storage", "eic": "21X000000001160J", "country": "DE",
+     "facilities": [{"name": "UGS Rehden", "type": "Depleted field", "eic": "21W000000000043Q", "country": "DE",
+                     "company": "21X000000001160J"}]},
+    {"name": "Uniper Energy Storage GmbH", "short_name": "UES", "eic": "21X000000001127H", "country": "DE",
+     "facilities": [{"name": "UGS Epe L", "type": "Salt cavern", "eic": "21W000000000101X", "country": "DE",
+                     "company": "21X000000001127H"}]},
+    {"name": "TAQA Energy B.V.", "short_name": "TAQA", "eic": "21X000000001079S", "country": "NL",
+     "facilities": [{"name": "Bergermeer", "type": "Depleted field", "eic": "21W000000000082S", "country": "NL",
+                     "company": "21X000000001079S"}]},
+]
+
+
 def install(rsps: responses.RequestsMock) -> None:
+    rsps.add(responses.GET, re.compile(r"https://agsi\.gie\.eu/api/about.*"), json=STORAGE_SITES)
     rsps.add(responses.GET, re.compile(r"https://alsi\.gie\.eu/api/about.*"), json=FACILITIES)
     for platform, url in gie.BASE.items():
         rsps.add_callback(responses.GET, url, callback=gie_callback(platform))

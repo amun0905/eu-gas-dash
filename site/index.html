@@ -59,6 +59,30 @@
       <div class="card-head"><h2>Latest by storage area</h2><span class="unit">AGSI+ · status E = estimated, C = confirmed</span></div>
       <div class="table-wrap always" id="t-latest"></div>
     </article>
+
+    <article class="card span-12" id="card-sites">
+      <div class="card-head"><h2>Storage sites</h2><span class="unit">latest gas day · click a site for detail</span></div>
+      <div class="filters">
+        <label for="s-country">Country</label><select id="s-country"></select>
+        <input type="search" id="s-q" placeholder="Filter by site or operator…" aria-label="Filter storage sites">
+      </div>
+      <div class="table-wrap always" id="t-sites"></div>
+      <p class="note" id="sites-note"></p>
+      <p class="src">Source: GIE AGSI+ (site level)</p>
+    </article>
+    <article class="card span-7" id="card-sstack">
+      <div class="card-head"><h2 id="sstack-title">Gas in storage by site</h2><span class="unit"><span data-u="S">TWh</span> · stacked</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart" id="c-sstack"></div><div class="table-wrap"></div>
+      <p class="note">Largest seven sites by volume; the rest grouped as Other.</p>
+      <p class="src">Source: GIE AGSI+ (site level)</p>
+    </article>
+    <article class="card span-5" id="card-ssite">
+      <div class="card-head"><h2 id="ssite-title">Site fill vs last year</h2><span class="unit">% of working gas volume</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart" id="c-ssite"></div><div class="table-wrap"></div>
+      <p class="src">Source: GIE AGSI+ (site level)</p>
+    </article>
   </section>
 </main>
 <footer id="footer"></footer>
@@ -68,7 +92,10 @@
   const { c, ca, uF, uS, nf, sf, css, slot, num, signed, base, line, pairs, axisTooltip, chart, table, seriesTable, fillTable, fmtDay, fmtDayY, esc } = GD;
   let DATA = null, ENT = new URLSearchParams(location.search).get("area") || "EU";
   const sel = document.getElementById("entity");
-  sel.addEventListener("change", () => { ENT = sel.value; draw(); });
+  sel.addEventListener("change", () => {
+    ENT = sel.value; draw();
+    if (SITES && SITES.countries.includes(ENT)) { sCountry.value = ENT; SITE = null; sites(); }
+  });
 
   function kpis() {
     const r = DATA.latest.find((x) => x.code === ENT);
@@ -180,6 +207,72 @@
     ], DATA.latest);
   }
 
+
+  // ---------------------------------------------------------------- storage sites
+  let SITES = null, SITE = null;
+  const siteCache = {};
+  const sCountry = document.getElementById("s-country");
+  sCountry.addEventListener("change", () => { SITE = null; sites(); });
+  document.getElementById("s-q").addEventListener("input", () => sites(false));
+  function spark(arr) {
+    const v = arr || [], ok = v.filter((x) => x != null);
+    if (!ok.length) return "";
+    const pts = v.map((x, i) => x == null ? null : `${(i / Math.max(1, v.length - 1) * 88 + 1).toFixed(1)},${(21 - x / 100 * 19).toFixed(1)}`).filter(Boolean).join(" ");
+    return `<svg width="90" height="22" viewBox="0 0 90 22" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${slot(0)}" stroke-width="1.5"/></svg>`;
+  }
+  async function loadSites() {
+    try { SITES = await GD.load("storage_sites"); } catch (e) { SITES = null; }
+    if (!SITES || !SITES.sites || !SITES.sites.length) {
+      ["card-sites", "card-sstack", "card-ssite"].forEach((id) => document.getElementById(id).style.display = "none");
+      return;
+    }
+    const names = Object.fromEntries(DATA.entities.map((e) => [e.code, e.name]));
+    sCountry.innerHTML = SITES.countries.map((k) => `<option value="${k}">${esc(names[k] || k)}</option>`).join("");
+    sCountry.value = SITES.countries.includes(ENT) ? ENT : (SITES.countries.includes("DE") ? "DE" : SITES.countries[0]);
+    document.getElementById("sites-note").textContent = SITES.note || "";
+    sites();
+  }
+  async function sites(redrawCharts = true) {
+    if (!SITES) return;
+    const ctry = sCountry.value, q = document.getElementById("s-q").value.trim().toLowerCase();
+    const rows = SITES.sites.filter((x) => x.country === ctry && (!q || [x.name, x.company].some((v) => (v || "").toLowerCase().includes(q))));
+    if (!SITE || !rows.some((x) => x.eic === SITE)) SITE = rows[0]?.eic;
+    document.getElementById("t-sites").innerHTML = rows.length ? table([
+      { label: "Site", key: "name", cls: "l", html: (r) => `<a href="#card-ssite" data-eic="${esc(r.eic)}" style="color:inherit${r.eic === SITE ? ";font-weight:600" : ""}">${esc(r.name)}</a>` },
+      { label: "Operator", key: "company", cls: "l" }, { label: "Type", key: "type", cls: "l" },
+      { label: "Fill %", key: "full", fmt: (v) => num(v, 1) }, { label: uS(), key: "twh", fmt: (v) => nf(v, 2) },
+      { label: `Capacity ${uS()}`, key: "wgv_twh", fmt: (v) => nf(v, 2) },
+      { label: `Net injection ${uF()}`, key: "net_injection_gwh", fmt: (v) => sf(v, 0) },
+      { label: "7d pp", key: "d7_pp", fmt: (v) => signed(v, 1) }, { label: "vs last year pp", key: "vs_last_year_pp", fmt: (v) => signed(v, 1) },
+      { label: "90-day fill", key: "eic", html: (r) => spark(r.spark) }, { label: "Gas day", key: "gas_day" }, { label: "Status", key: "status" },
+    ], rows) : '<p class="empty">No sites match.</p>';
+    document.querySelectorAll("#t-sites [data-eic]").forEach((a) => a.addEventListener("click", () => { SITE = a.dataset.eic; sites(); }));
+    if (!redrawCharts) return;
+
+    if (!siteCache[ctry]) { try { siteCache[ctry] = await GD.load(`storage_sites_${ctry}`); } catch (e) { return; } }
+    const C = siteCache[ctry], t = C.t;
+    const cname = sCountry.options[sCountry.selectedIndex]?.text || ctry;
+    document.getElementById("sstack-title").textContent = `${cname}: gas in storage by site`;
+    const top = C.sites.slice(0, 7), rest = C.sites.slice(7);
+    const named = top.map((x) => ({ name: x.name, data: ca(x.twh) }));
+    if (rest.length) named.push({ name: "Other", data: ca(t.map((_, j) => rest.reduce((a, x) => a + (x.twh[j] || 0), 0))) });
+    const o = base({});
+    o.tooltip.formatter = axisTooltip(uS, 2);
+    o.series = named.map((x, i) => ({ ...GD.area(x.name, pairs(t, x.data), x.name === "Other" ? css("--ref") : slot(i)),
+      areaStyle: { color: x.name === "Other" ? css("--ref") : slot(i), opacity: 1 }, lineStyle: { width: 1, color: css("--surface-1") } }));
+    chart("c-sstack").setOption(o, true);
+    fillTable("#card-sstack", seriesTable(t, named, GD.dp(2)));
+
+    const st = C.sites.find((x) => x.eic === SITE) || C.sites[0];
+    if (!st) return;
+    document.getElementById("ssite-title").textContent = `${st.name}: fill vs last year`;
+    const o2 = base({});
+    o2.yAxis.min = 0; o2.yAxis.max = 100;
+    o2.tooltip.formatter = axisTooltip("% full", 1);
+    o2.series = [line("This year", pairs(t, st.full), slot(0)), line("Same date last year", pairs(t, st.full_last_year), slot(1))];
+    chart("c-ssite").setOption(o2, true);
+    fillTable("#card-ssite", seriesTable(t, [{ name: "This year %", data: st.full }, { name: "Last year %", data: st.full_last_year }]));
+  }
   function draw() { kpis(); season(); countries(); net(); hdd(); }
 
   GD.boot("index.html", "storage", (data) => {
@@ -189,6 +282,7 @@
     sel.innerHTML = data.entities.map((e) => `<option value="${e.code}">${esc(e.name)}</option>`).join("");
     sel.value = ENT;
     draw(); latestTable();
+    if (!SITES) loadSites(); else sites();
   });
 })();
 </script>

@@ -139,7 +139,12 @@ def main(argv=None) -> int:
                 failures.append(spec.name)
 
     if a.cmd == "update":
+        hour = datetime.now(timezone.utc).hour
         for spec in _pick(registry, a.datasets):
+            hours = spec.options.get("update_hours_utc")
+            if hours and not a.datasets and hour not in hours:
+                log.info("%s: refreshed only at %s UTC; skipping this run", spec.name, hours)
+                continue
             try:
                 run_one(spec, lambda c, spec=spec: pipeline.update(spec, store, client=c))
                 if spec.options.get("gap_key"):  # self-healing: a couple of holey months per run

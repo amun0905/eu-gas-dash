@@ -582,6 +582,73 @@ def build_auctions(store: Store, registry: dict[str, DatasetSpec], now: datetime
                           "max_premium": _r(r.max_premium, 4)} for r in by_point.itertuples()]}
 
 
+# ---------------------------------------------------------------- storage sites (AGSI facility level)
+
+def build_storage_sites(store: Store, registry: dict[str, DatasetSpec], now=None) -> dict:
+    """Index (latest figures + 90-day sparkline per site) and one detail file per country, so the
+    browser only downloads the year of daily data for the country being looked at."""
+    now = pd.Timestamp(now or now_utc())
+    spec = registry.get("agsi_facilities")
+    if spec is None:
+        return {"index": {}, "countries": {}}
+    df = store.read(spec, now - timedelta(days=760), now + timedelta(days=1))
+    if df.empty:
+        return {"index": {"sites": []}, "countries": {}}
+    df = df.sort_values("gasDay")
+    end = df["gasDay"].max()
+    window = _day_index(end - timedelta(days=364), end)
+    sites, countries = [], {}
+    for eic, d in df.groupby("entity", sort=False):
+        d = d.set_index("gasDay")
+        d = d[~d.index.duplicated(keep="last")]
+        full, twh = d["full"].astype(float), d["gasInStorage"].astype(float)
+        net = d["injection"].astype(float) - d["withdrawal"].astype(float)
+        valid = full.dropna()
+        if valid.empty:
+            continue
+        ld = valid.index[-1]
+        k7 = ld - pd.Timedelta(days=7)
+        last = d.iloc[-1]
+        ctry = str(last.get("country") or "")
+        site = {
+            "eic": eic, "name": last.get("name"), "country": ctry, "company": last.get("company"),
+            "type": last.get("facilityType"), "gas_day": ld.date().isoformat(), "status": d["status"].get(ld),
+            "full": _r(valid.iloc[-1], 1), "twh": _r(twh.get(ld), 2), "wgv_twh": _r(d["workingGasVolume"].get(ld), 2),
+            "net_injection_gwh": _r(net.get(ld), 0),
+            "d7_pp": _r(valid.iloc[-1] - full[k7], 1) if k7 in full.index and pd.notna(full[k7]) else None,
+            "vs_last_year_pp": None, "spark": _arr(full.reindex(_day_index(ld - timedelta(days=89), ld)), 1),
+        }
+        ly = full.get(ld - pd.DateOffset(years=1))
+        if ly is not None and pd.notna(ly):
+            site["vs_last_year_pp"] = _r(valid.iloc[-1] - ly, 1)
+        sites.append(site)
+        countries.setdefault(ctry, []).append({
+            "eic": eic, "name": site["name"],
+            "full": _arr(full.reindex(window), 1),
+            "full_last_year": _arr(full.reindex(window - pd.DateOffset(years=1)), 1),
+            "twh": _arr(twh.reindex(window), 2),
+            "net_injection_gwh": _arr(net.reindex(window), 0),
+        })
+    sites.sort(key=lambda r: -(r["wgv_twh"] or 0))
+    for c in countries.values():
+        c.sort(key=lambda x: -max([v for v in x["twh"] if v is not None] or [0]))
+    return {
+        "index": {"sources": _sources("gie"), "sites": sites,
+                  "countries": sorted(c for c in countries if c),
+                  "note": "Individual storage sites as reported to GIE AGSI+, refreshed once each evening after "
+                          "GIE's publication. Last year = the same date one year earlier."},
+        "countries": {c: {"t": _ms(window), "sites": v} for c, v in countries.items() if c},
+    }
+
+
+def export_storage_sites(store: Store, registry, now=None):
+    data = build_storage_sites(store, registry, now)
+    _write(store, "storage_sites", data["index"])
+    for c, obj in data["countries"].items():
+        _write(store, f"storage_sites_{c}", obj)
+    return data
+
+
 # ---------------------------------------------------------------- sources & freshness
 
 def build_sources(store: Store, registry: dict[str, DatasetSpec], now: datetime | None = None) -> dict:
@@ -614,5 +681,6 @@ EXPORTS = {
     "flows": _writer("flows", build_flows),
     "events": _writer("events", build_events),
     "auctions": _writer("auctions", build_auctions),
+    "storage_sites": export_storage_sites,
     "sources": _writer("sources", build_sources),
 }

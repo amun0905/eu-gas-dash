@@ -68,7 +68,9 @@ def test_unknown_key_flagged(api):
 
 def test_full_update_then_idempotent(api, gie_key, store):
     assert main(["--store", store.url, "update"]) == 0
-    for name in REG:
+    for name, spec in REG.items():
+        if spec.options.get("update_hours_utc"):
+            continue  # evening-only dataset; may be skipped depending on the clock
         assert store.partitions(name), f"{name} wrote nothing"
     flows = store.read(REG["entsog_flows"])
     assert set(flows.indicator) == {"Physical Flow", "Nomination"}
@@ -204,3 +206,33 @@ def test_gaps_found_and_healed(api, gie_key, store):
     fakes.HOLES.clear()
     assert main(["--store", store.url, "repair", "agsi_storage"]) == 0
     assert find_gaps(spec, store) == {}
+
+
+def test_storage_sites(api, gie_key, store):
+    from gasdash.export import build_storage_sites
+    main(["--store", store.url, "backfill", "agsi_facilities",
+          "--start", (datetime.now(UTC) - timedelta(days=400)).date().isoformat()])
+    sites = store.read(REG["agsi_facilities"])
+    assert set(sites.name) == {"UGS Rehden", "UGS Epe L", "Bergermeer"}
+    out = build_storage_sites(store, REG)
+    idx = out["index"]
+    assert idx["countries"] == ["DE", "NL"] and len(idx["sites"]) == 3
+    assert all(len(x["spark"]) == 90 and x["vs_last_year_pp"] is not None for x in idx["sites"])
+    de = out["countries"]["DE"]
+    assert len(de["t"]) == 365 and len(de["sites"]) == 2 and len(de["sites"][0]["full_last_year"]) == 365
+    assert main(["--store", store.url, "export"]) == 0
+    assert store.fs.exists(f"{store.root}/web/storage_sites_DE.json")
+
+
+def test_evening_only_dataset_skipped_outside_window(api, gie_key, store, monkeypatch, caplog):
+    import logging
+    import gasdash.cli as cli
+    class Fixed(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 22, 10, 17, tzinfo=UTC)
+    monkeypatch.setattr(cli, "datetime", Fixed)
+    caplog.set_level(logging.INFO)
+    cli.main(["--store", store.url, "update"])
+    assert not store.partitions("agsi_facilities")
+    assert "refreshed only at" in caplog.text
