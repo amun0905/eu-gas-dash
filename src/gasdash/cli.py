@@ -7,6 +7,8 @@
     gasdash export                 write web/*.json for the website
     gasdash points [--csv out.csv] check config/entsog_points.yaml against ENTSOG's live point list
     gasdash probe [DATASET ...]    fetch 3 recent days per dataset and print what came back (no writes)
+    gasdash gaps [DATASET ...]     list missing days in daily datasets (no writes)
+    gasdash repair [DATASET ...]   re-fetch every month that has missing days
 
 Storage location: --store, or env GASDASH_STORE (default ./data).
 """
@@ -74,6 +76,8 @@ def main(argv=None) -> int:
     pr = sub.add_parser("probe", help="fetch a few recent days per dataset and print a summary (no writes)")
     pr.add_argument("datasets", nargs="*")
     pr.add_argument("--days", type=int, default=3)
+    gp = sub.add_parser("gaps", help="list missing days in daily datasets"); gp.add_argument("datasets", nargs="*")
+    rp = sub.add_parser("repair", help="re-fetch months with missing days"); rp.add_argument("datasets", nargs="*")
 
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if a.verbose else logging.INFO,
@@ -110,10 +114,38 @@ def main(argv=None) -> int:
             save_resolved_points(store, client)
         return out
 
+    if a.cmd == "gaps":
+        for spec in _pick(registry, a.datasets):
+            g = pipeline.find_gaps(spec, store)
+            if spec.options.get("gap_key") is None:
+                continue
+            n = sum(len(v) for v in g.values())
+            print(f"{spec.name}: {n} missing entity-days in {len(g)} months")
+            for m, holes in g.items():
+                ents = sorted({e for e, _ in holes})
+                print(f"  {m}: {len(holes):4d} missing  ({', '.join(ents[:8])}{' ...' if len(ents) > 8 else ''})")
+        return 0
+
+    if a.cmd == "repair":
+        for spec in _pick(registry, a.datasets):
+            if spec.options.get("gap_key") is None:
+                continue
+            try:
+                print(spec.name, run_one(spec, lambda c, spec=spec: pipeline.heal(spec, store, client=c, force=True)))
+            except SourceNotConfigured as e:
+                log.warning("%s: %s", spec.name, e)
+            except Exception:
+                log.exception("repair failed for %s", spec.name)
+                failures.append(spec.name)
+
     if a.cmd == "update":
         for spec in _pick(registry, a.datasets):
             try:
                 run_one(spec, lambda c, spec=spec: pipeline.update(spec, store, client=c))
+                if spec.options.get("gap_key"):  # self-healing: a couple of holey months per run
+                    h = run_one(spec, lambda c, spec=spec: pipeline.heal(spec, store, client=c, max_months=2))
+                    if h["refetched"]:
+                        log.info("%s healed: %s", spec.name, h)
             except SourceNotConfigured as e:
                 log.warning("%s: %s", spec.name, e)
             except Exception:  # keep going: one broken feed shouldn't stop the others
@@ -149,7 +181,7 @@ def main(argv=None) -> int:
                 log.exception("export %s failed", name)
                 failures.append(f"export:{name}")
 
-    if a.cmd in ("update", "backfill"):
+    if a.cmd in ("update", "backfill", "repair"):
         manifests = [m for spec in registry.values() if (m := store.manifest(spec))]
         store.write_catalog(manifests)
 

@@ -112,3 +112,62 @@ def freshness(spec: DatasetSpec, store: Store, now: datetime | None = None) -> d
         "age_hours": None if age_h is None else round(age_h, 2),
         "stale": age_h is None or age_h > spec.max_staleness_hours,
     }
+
+
+# ---------------------------------------------------------------- gaps & self-healing
+
+def find_gaps(spec: DatasetSpec, store: Store) -> dict[str, list]:
+    """Daily datasets keyed by (day, entity): days missing between each entity's first and last day.
+    -> {month 'YYYY-MM': [(entity, day), ...]}. Other datasets return {}."""
+    if spec.options.get("gap_key") is None:
+        return {}
+    ent_col, t = spec.options["gap_key"], spec.time_column
+    df = store.read(spec)
+    if df.empty:
+        return {}
+    out: dict[str, list] = {}
+    for ent, d in df.groupby(ent_col):
+        days = pd.DatetimeIndex(d[t].dropna().dt.normalize().unique()).sort_values()
+        if len(days) < 2:
+            continue
+        missing = pd.date_range(days[0], days[-1], freq="D", tz="UTC").difference(days)
+        for day in missing:
+            out.setdefault(day.strftime("%Y-%m"), []).append((ent, day.date().isoformat()))
+    return dict(sorted(out.items()))
+
+
+def heal(spec: DatasetSpec, store: Store, client=None, max_months: int | None = None, force: bool = False) -> dict:
+    """Re-fetch months that have holes. Months that were re-fetched before and still have exactly the
+    same holes are skipped (the source simply has no data there), so a real gap isn't retried forever.
+    force=True (the `repair` command) re-fetches every holey month regardless."""
+    gaps = find_gaps(spec, store)
+    if not gaps:
+        return {"months_with_gaps": 0, "refetched": []}
+    memo_path = f"{store.root}/reference/heal_{spec.name}.json"
+    memo = {}
+    if store.fs.exists(memo_path):
+        import json
+        with store.fs.open(memo_path, "rb") as f:
+            memo = json.loads(f.read())
+    todo = [m for m, holes in gaps.items() if force or memo.get(m) != len(holes)]
+    if max_months is not None:
+        todo = todo[-max_months:]  # newest first matters most
+    client = client or get_client(spec.source)
+    done = []
+    for m in todo:
+        a = datetime.strptime(m, "%Y-%m").replace(tzinfo=timezone.utc)
+        b = (a + timedelta(days=32)).replace(day=1)
+        stats = _ingest(spec, store, client, a, b)
+        log.info("%s heal %s (%d missing entity-days): %s", spec.name, m, len(gaps[m]), stats)
+        done.append(m)
+    after = find_gaps(spec, store)
+    for m in done:
+        if m in after:
+            memo[m] = len(after[m])
+        else:
+            memo.pop(m, None)
+    store.write_json(memo_path, memo)
+    if done:
+        store.write_manifest(spec, attribution(spec.source))
+    remaining = sum(len(v) for v in after.values())
+    return {"months_with_gaps": len(gaps), "refetched": done, "missing_entity_days_after": remaining}

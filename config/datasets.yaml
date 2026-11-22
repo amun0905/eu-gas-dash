@@ -31,6 +31,7 @@ datasets:
     max_staleness_hours: 60    # D+1 publication at ~19:30 CET; weekends are normal
     options:
       platform: agsi
+      gap_key: entity          # check for missing days per entity and re-fetch them (self-healing)
       # eu = EU aggregate; GB and UA report as non-EU countries
       entities: [eu, DE, IT, FR, NL, AT, HU, CZ, SK, PL, ES, BE, RO, BG, HR, DK, LV, PT, SE, GB, UA]
     columns:
@@ -63,6 +64,7 @@ datasets:
     max_staleness_hours: 60
     options:
       platform: alsi
+      gap_key: entity          # check for missing days per entity and re-fetch them (self-healing)
       entities: [eu, BE, HR, FI, FR, DE, GR, IT, LT, NL, PL, PT, ES, GB]
     columns:
       gasDay: datetime
@@ -90,6 +92,7 @@ datasets:
     max_staleness_hours: 60
     options:
       platform: alsi_facility  # terminals come from ALSI's public listing, so new FSRUs appear by themselves
+      gap_key: entity          # check for missing days per entity and re-fetch them (self-healing)
     columns:
       gasDay: datetime
       entity: str              # facility EIC code

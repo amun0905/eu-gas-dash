@@ -171,3 +171,36 @@ def test_leap_day_does_not_spike_band():
     i = out["md"].index("02-29")
     assert out["avg"][i] < 60 and out["current"][i] == 50.0     # filled from neighbours, no gap
     assert set(out["years"]) == {"2021", "2022", "2023", "2024", "2025"}
+
+
+def test_gie_throttle_body_is_retried_not_treated_as_empty(api, gie_key):
+    import fakes
+    from gasdash.sources.gie import GieClient
+    fakes.THROTTLE_NEXT[0] = 2                       # two 'too many requests' answers, then data
+    rows = [r for page in GieClient().pages("agsi", {"country": "de", "from": "2025-03-01", "to": "2025-03-31"}) for r in page]
+    assert len(rows) == 31
+
+
+def test_gie_persistent_error_fails_loudly(api, gie_key):
+    import fakes
+    from gasdash.sources.gie import GieClient
+    fakes.THROTTLE_NEXT[0] = 99
+    with pytest.raises(RuntimeError, match="still failing"):
+        list(GieClient().pages("agsi", {"country": "de", "from": "2025-03-01", "to": "2025-03-31"}))
+
+
+def test_gaps_found_and_healed(api, gie_key, store):
+    import fakes
+    from gasdash.pipeline import find_gaps, heal
+    spec = REG["agsi_storage"]
+    fakes.HOLES.add(("DE", "2025-03"))
+    main(["--store", store.url, "backfill", "agsi_storage", "--start", "2025-01-01", "--end", "2025-06-01"])
+    g = find_gaps(spec, store)
+    assert list(g) == ["2025-03"] and len(g["2025-03"]) == 31
+    # the source still has no data -> re-fetched once, then remembered and not retried
+    assert heal(spec, store)["refetched"] == ["2025-03"]
+    assert heal(spec, store)["refetched"] == []
+    # the data turns up -> `repair` re-fetches regardless of what was tried before
+    fakes.HOLES.clear()
+    assert main(["--store", store.url, "repair", "agsi_storage"]) == 0
+    assert find_gaps(spec, store) == {}

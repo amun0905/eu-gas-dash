@@ -1,0 +1,56 @@
+name: repair
+
+# Manual: Actions -> repair -> Run workflow.
+# Finds days missing in the daily GIE datasets and re-fetches every month that has holes.
+# (The 2-hourly update also heals up to two months per dataset on its own; this does all of them at once.)
+on:
+  workflow_dispatch:
+    inputs:
+      datasets:
+        description: "Space-separated dataset names"
+        required: true
+        default: "agsi_storage alsi_lng alsi_terminals"
+
+concurrency:
+  group: data-store
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GASDASH_STORE: ${{ vars.GASDASH_STORE }}
+      GASDASH_S3_ENDPOINT: ${{ secrets.GASDASH_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      GIE_API_KEY: ${{ secrets.GIE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install ".[s3]"
+      - name: Gaps before
+        env:
+          IN_DATASETS: ${{ github.event.inputs.datasets }}
+        # shellcheck disable=SC2086
+        run: gasdash gaps $IN_DATASETS
+      - name: Repair
+        env:
+          IN_DATASETS: ${{ github.event.inputs.datasets }}
+        # shellcheck disable=SC2086
+        run: gasdash repair $IN_DATASETS
+      - name: Gaps after
+        if: always()
+        env:
+          IN_DATASETS: ${{ github.event.inputs.datasets }}
+        # shellcheck disable=SC2086
+        run: gasdash gaps $IN_DATASETS
+      - name: Export website data
+        if: always()
+        run: gasdash export

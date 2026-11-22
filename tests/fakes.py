@@ -39,11 +39,18 @@ def _season(d: date, lo=20.0, hi=95.0, phase=0.0) -> float:
 
 
 # ---------------------------------------------------------------- GIE
+HOLES: set = set()        # {(entity, "YYYY-MM")}: answer with no rows, like a lost month
+THROTTLE_NEXT = [0]       # answer the next N calls with GIE's over-the-limit error (HTTP 200)
+
+
 def gie_callback(platform):
     def cb(request):
         q = _q(request)
         if request.headers.get("x-key") != "test-key":
             return 401, {}, json.dumps({"error": "invalid key"})
+        if THROTTLE_NEXT[0] > 0:
+            THROTTLE_NEXT[0] -= 1
+            return 200, {}, json.dumps({"error": "Too many requests, please wait 60 seconds"})
         size, page = int(q.get("size", 30)), int(q.get("page", 1))
         if platform == "iip":
             m = q.get("published", "2026-01")
@@ -60,7 +67,7 @@ def gie_callback(platform):
             size = min(size, 50)
         else:
             ent = q.get("facility") or (q.get("country") or q.get("type") or "eu").upper()
-            days = list(_days(q["from"], q["to"]))
+            days = [d for d in _days(q["from"], q["to"]) if (ent, d.strftime("%Y-%m")) not in HOLES]
             rows = []
             for d in reversed(days):  # GIE returns newest first
                 if platform == "agsi":

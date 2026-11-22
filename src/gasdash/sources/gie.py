@@ -32,7 +32,8 @@ BASE = {
     "iip": "https://iip.gie.eu/api",
 }
 PAGE_SIZE = 300
-MIN_INTERVAL_S = float(os.getenv("GIE_MIN_INTERVAL_S", "1.1"))  # stay under 60 calls/minute
+MIN_INTERVAL_S = float(os.getenv("GIE_MIN_INTERVAL_S", "1.5"))  # well under 60 calls/minute (retries count too)
+THROTTLE_WAIT_S = float(os.getenv("GIE_THROTTLE_WAIT_S", "65"))  # GIE blocks for 60 s after the limit is hit
 
 
 def api_key() -> str:
@@ -47,6 +48,16 @@ def _num(v):
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _error_in(body) -> str | None:
+    """Return the error text if a 200 response is really an error (no data, an error/message field)."""
+    if not isinstance(body, dict) or isinstance(body.get("data"), list):
+        return None
+    for k in ("error", "errors", "message", "msg"):
+        if body.get(k):
+            return str(body[k])
+    return f"unexpected response without data: {str(body)[:200]}"
 
 
 def _entity_params(entity: str) -> dict:
@@ -67,7 +78,21 @@ class GieClient:
         self._last_call = 0.0
 
     # ------------------------------------------------------------------ http
-    def _get(self, platform: str, params: dict) -> dict:
+    def _get(self, platform: str, params: dict, attempts: int = 4) -> dict:
+        """One API call. GIE can answer an over-limit request with HTTP 200 and an error body instead of
+        data; treating that as 'no data' silently loses whole months, so it is detected and retried."""
+        for attempt in range(1, attempts + 1):
+            body = self._get_once(platform, params)
+            problem = _error_in(body)
+            if not problem:
+                return body
+            if attempt < attempts:
+                log.warning("GIE %s %s answered %r; waiting %.0f s and retrying (%d/%d)",
+                            platform, params, problem[:120], THROTTLE_WAIT_S, attempt, attempts - 1)
+                time.sleep(float(os.getenv("GIE_THROTTLE_WAIT_S", THROTTLE_WAIT_S)))
+        raise RuntimeError(f"GIE {platform} {params}: still failing after {attempts} attempts: {problem[:300]}")
+
+    def _get_once(self, platform: str, params: dict) -> dict:
         if self.pace:
             wait = float(os.getenv("GIE_MIN_INTERVAL_S", MIN_INTERVAL_S)) - (time.monotonic() - self._last_call)
             if wait > 0:
@@ -94,6 +119,12 @@ class GieClient:
                 yield body
                 return
             rows = body.get("data") or []
+            if page == 1 and not rows:
+                log.warning("GIE %s %s returned no rows (total=%s, keys=%s)", platform, params,
+                            body.get("total"), sorted(body)[:8])
+            elif page == 1:
+                log.debug("GIE %s %s: total=%s last_page=%s first page=%d rows", platform, params,
+                          body.get("total"), body.get("last_page"), len(rows))
             yield rows
             if not rows:
                 return
