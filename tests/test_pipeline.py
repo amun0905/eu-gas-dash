@@ -69,8 +69,8 @@ def test_unknown_key_flagged(api):
 def test_full_update_then_idempotent(api, gie_key, store):
     assert main(["--store", store.url, "update"]) == 0
     for name, spec in REG.items():
-        if spec.options.get("update_hours_utc"):
-            continue  # evening-only dataset; may be skipped depending on the clock
+        if spec.options.get("refresh_when_due"):
+            continue  # refreshed once a day; checked in its own test
         assert store.partitions(name), f"{name} wrote nothing"
     flows = store.read(REG["entsog_flows"])
     assert set(flows.indicator) == {"Physical Flow", "Nomination"}
@@ -224,15 +224,22 @@ def test_storage_sites(api, gie_key, store):
     assert store.fs.exists(f"{store.root}/web/storage_sites_DE.json")
 
 
-def test_evening_only_dataset_skipped_outside_window(api, gie_key, store, monkeypatch, caplog):
+def test_gie_refresh_due():
+    from gasdash.cli import gie_refresh_due
+    ts = lambda d: pd.Timestamp(d, tz="UTC")
+    # 25 Nov 14:30 UTC: GIE has published up to gas day 23 Nov
+    assert gie_refresh_due(ts("2026-11-23"), datetime(2026, 11, 25, 14, 30, tzinfo=UTC))[0] is False
+    assert gie_refresh_due(ts("2026-11-22"), datetime(2026, 11, 25, 14, 30, tzinfo=UTC))[0] is True
+    # after the evening publication, 24 Nov is due; a late run next morning still catches up
+    assert gie_refresh_due(ts("2026-11-23"), datetime(2026, 11, 25, 20, 17, tzinfo=UTC))[0] is True
+    assert gie_refresh_due(ts("2026-11-23"), datetime(2026, 11, 26, 2, 34, tzinfo=UTC))[0] is True
+    assert gie_refresh_due(None, datetime(2026, 11, 25, 9, 0, tzinfo=UTC))[0] is True
+
+
+def test_storage_sites_skipped_when_up_to_date(api, gie_key, store, caplog):
     import logging
-    import gasdash.cli as cli
-    class Fixed(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return datetime(2026, 11, 22, 10, 17, tzinfo=UTC)
-    monkeypatch.setattr(cli, "datetime", Fixed)
+    main(["--store", store.url, "update", "agsi_facilities"])     # named -> always runs
+    assert store.partitions("agsi_facilities")
     caplog.set_level(logging.INFO)
-    cli.main(["--store", store.url, "update"])
-    assert not store.partitions("agsi_facilities")
-    assert "refreshed only at" in caplog.text
+    main(["--store", store.url, "update"])                         # scheduled-style run
+    assert "the newest GIE has published; skipping" in caplog.text

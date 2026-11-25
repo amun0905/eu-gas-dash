@@ -65,9 +65,9 @@ datasets:
     options:
       platform: agsi_facility  # sites come from AGSI's public listing
       gap_key: entity
-      # ~150 sites x 1 call each: only refresh after GIE's evening publications (19:30 and 23:00 CET),
-      # i.e. the 20:17 and 22:17 UTC runs. Naming the dataset explicitly always runs it.
-      update_hours_utc: [20, 21, 22, 23]   # a delayed run still lands in the window
+      # ~150 sites x 1 call each: refresh only when GIE should have published a newer gas day than we
+      # hold (once a day, on whichever run comes first after ~19:30 CET). Naming the dataset always runs it.
+      refresh_when_due: true
     columns:
       gasDay: datetime
       entity: str              # facility EIC code

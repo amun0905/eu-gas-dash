@@ -45,6 +45,19 @@ def _pick(registry, names):
     return [registry[n] for n in names]
 
 
+# GIE publishes gas day D at ~19:30 CET (18:30 UTC in winter, 17:30 in summer) on D+1.
+GIE_PUBLISHED_BY_UTC = timedelta(hours=18, minutes=45)
+
+
+def gie_refresh_due(latest, now: datetime):
+    """Refresh only when GIE should have a newer gas day than the store holds. This doesn't depend on
+    *when* a run happens (GitHub often delays or skips scheduled runs): the first run after GIE's
+    publication catches up, and every other run skips the ~150 calls."""
+    expected = (now - GIE_PUBLISHED_BY_UTC).date() - timedelta(days=1)
+    newest = None if latest is None else latest.date()
+    return (newest is None or newest < expected), newest, expected
+
+
 def save_resolved_points(store: Store, client) -> None:
     """Keep the ENTSOG key -> series mapping next to the data, so the export never needs the API."""
     from .sources.entsog import load_points
@@ -139,12 +152,15 @@ def main(argv=None) -> int:
                 failures.append(spec.name)
 
     if a.cmd == "update":
-        hour = datetime.now(timezone.utc).hour
+        now = datetime.now(timezone.utc)
         for spec in _pick(registry, a.datasets):
-            hours = spec.options.get("update_hours_utc")
-            if hours and not a.datasets and hour not in hours:
-                log.info("%s: refreshed only at %s UTC; skipping this run", spec.name, hours)
-                continue
+            if spec.options.get("refresh_when_due") and not a.datasets:
+                due, newest, expected = gie_refresh_due(store.latest_time(spec), now)
+                if not due:
+                    log.info("%s: have gas day %s, the newest GIE has published; skipping this run",
+                             spec.name, newest)
+                    continue
+                log.info("%s: have gas day %s, GIE should have %s; refreshing", spec.name, newest, expected)
             try:
                 run_one(spec, lambda c, spec=spec: pipeline.update(spec, store, client=c))
                 if spec.options.get("gap_key"):  # self-healing: a couple of holey months per run
