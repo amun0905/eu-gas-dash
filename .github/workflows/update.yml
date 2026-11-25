@@ -26,7 +26,7 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50   # evening runs also refresh ~150 storage sites at GIE's 1 call / 1.5 s
     env:
       GASDASH_STORE: ${{ vars.GASDASH_STORE }}                 # e.g. s3://gb-power-data/eu-gas
       GASDASH_S3_ENDPOINT: ${{ secrets.GASDASH_S3_ENDPOINT }}  # https://<account>.r2.cloudflarestorage.com

@@ -28,7 +28,7 @@ datasets:
     chunk_days: 400
     lookback_days: 10          # operators revise the last few days
     start: "2016-01-01"        # enough for a 5-year range plus the current year
-    max_staleness_hours: 60    # D+1 publication at ~19:30 CET; weekends are normal
+    max_staleness_hours: 80    # gas day D is published ~19:30 CET on D+1, so the newest day is up to ~70 h old just before the next publication
     options:
       platform: agsi
       gap_key: entity          # check for missing days per entity and re-fetch them (self-healing)
@@ -61,7 +61,7 @@ datasets:
     chunk_days: 400
     lookback_days: 10
     start: "2024-01-01"        # this year vs last year per site; the 5-year view stays at country level
-    max_staleness_hours: 60
+    max_staleness_hours: 100    # evening-only refresh: one missed evening is tolerated before alerting
     options:
       platform: agsi_facility  # sites come from AGSI's public listing
       gap_key: entity
@@ -96,7 +96,7 @@ datasets:
     chunk_days: 400
     lookback_days: 10
     start: "2018-01-01"
-    max_staleness_hours: 60
+    max_staleness_hours: 80    # gas day D is published ~19:30 CET on D+1, so the newest day is up to ~70 h old just before the next publication
     options:
       platform: alsi
       gap_key: entity          # check for missing days per entity and re-fetch them (self-healing)
@@ -124,7 +124,7 @@ datasets:
     chunk_days: 400
     lookback_days: 10
     start: "2022-01-01"        # terminal view needs recent history only; keeps the backfill to ~1 hour
-    max_staleness_hours: 60
+    max_staleness_hours: 80    # gas day D is published ~19:30 CET on D+1, so the newest day is up to ~70 h old just before the next publication
     options:
       platform: alsi_facility  # terminals come from ALSI's public listing, so new FSRUs appear by themselves
       gap_key: entity          # check for missing days per entity and re-fetch them (self-healing)
