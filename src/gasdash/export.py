@@ -145,6 +145,9 @@ def build_storage(store: Store, registry: dict[str, DatasetSpec], now: datetime 
         if valid.empty:
             continue
         last_day = valid.index[-1]
+        if last_day < df["gasDay"].max() - pd.Timedelta(days=30):
+            log.info("storage: %s stopped reporting on %s; left out", ent, last_day.date())
+            continue  # e.g. GB stopped reporting to AGSI+ after Brexit (last day 30 Dec 2020)
         def ago(n):
             k = last_day - pd.Timedelta(days=n)
             return float(full[k]) if k in full.index and not pd.isna(full[k]) else None
@@ -607,6 +610,8 @@ def build_storage_sites(store: Store, registry: dict[str, DatasetSpec], now=None
         if valid.empty:
             continue
         ld = valid.index[-1]
+        if ld < end - pd.Timedelta(days=30):
+            continue  # site no longer reporting
         k7 = ld - pd.Timedelta(days=7)
         last = d.iloc[-1]
         ctry = str(last.get("country") or "")

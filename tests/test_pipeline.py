@@ -76,7 +76,7 @@ def test_full_update_then_idempotent(api, gie_key, store):
     assert set(flows.indicator) == {"Physical Flow", "Nomination"}
     assert flows.groupby(["gasDay", "pointDirection", "indicator"]).size().max() == 1
     agsi = store.read(REG["agsi_storage"])
-    assert {"EU", "DE", "GB"} <= set(agsi.entity)
+    assert {"EU", "DE", "UA"} <= set(agsi.entity)
     assert agsi["full"].between(0, 110).all()
     main(["--store", store.url, "update"])   # second run reaches further back (lookback > bootstrap)
     n_before = {name: len(store.read(spec)) for name, spec in REG.items()}
@@ -243,3 +243,12 @@ def test_storage_sites_skipped_when_up_to_date(api, gie_key, store, caplog):
     caplog.set_level(logging.INFO)
     main(["--store", store.url, "update"])                         # scheduled-style run
     assert "the newest GIE has published; skipping" in caplog.text
+
+
+def test_entity_that_stopped_reporting_is_left_out(api, gie_key, store):
+    import fakes
+    from gasdash.export import build_storage
+    fakes.HOLES.update({("DE", m) for m in pd.period_range("2025-03", pd.Timestamp.now().strftime("%Y-%m"), freq="M").strftime("%Y-%m")})
+    main(["--store", store.url, "backfill", "agsi_storage", "--start", "2025-01-01"])
+    codes = {r["code"] for r in build_storage(store, REG)["latest"]}
+    assert "DE" not in codes and "EU" in codes          # DE's last day is Feb 2025 -> dropped

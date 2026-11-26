@@ -32,8 +32,9 @@ datasets:
     options:
       platform: agsi
       gap_key: entity          # check for missing days per entity and re-fetch them (self-healing)
-      # eu = EU aggregate; GB and UA report as non-EU countries
-      entities: [eu, DE, IT, FR, NL, AT, HU, CZ, SK, PL, ES, BE, RO, BG, HR, DK, LV, PT, SE, GB, UA]
+      # eu = EU aggregate; UA reports as a non-EU country. GB stopped reporting to AGSI+ after 2020
+      # (Brexit), so GB storage comes from National Gas instead (gb_nts, PUBOBJ330).
+      entities: [eu, DE, IT, FR, NL, AT, HU, CZ, SK, PL, ES, BE, RO, BG, HR, DK, LV, PT, SE, UA]
     columns:
       gasDay: datetime
       entity: str
