@@ -173,18 +173,42 @@ def build_storage(store: Store, registry: dict[str, DatasetSpec], now: datetime 
             "withdrawal_capacity_gwh": _arr(d["withdrawalCapacity"].astype(float).reindex(recent), 0),
         }
     return {
-        "sources": _sources("gie", "openmeteo"),
+        "sources": _sources("gie", "openmeteo", "nationalgas"),
         "units": {"full": "% of working gas volume", "twh": "TWh", "flows": "GWh/d"},
         "entities": entities,
         "latest": latest_rows,
         "series": series,
         "weather": build_weather(store, registry, now),
+        "gb_stock": build_gb_stock(store, registry, now),
         "notes": [
             "Gas in storage at the end of each gas day, as reported by storage operators to GIE AGSI+. "
             "Status E = estimated, C = confirmed.",
             "5-year range = min / average / max of the five previous calendar years on the same date.",
         ],
     }
+
+
+def build_gb_stock(store: Store, registry: dict[str, DatasetSpec], now) -> dict:
+    """GB storage stock from National Gas (GB no longer reports to AGSI+): this year vs last year, GWh."""
+    spec = registry.get("gb_nts")
+    if spec is None:
+        return {}
+    df = store.read(spec, pd.Timestamp(now) - timedelta(days=760), pd.Timestamp(now) + timedelta(days=1))
+    if df.empty:
+        return {}
+    st = df[df["item"] == "PUBOBJ330"].set_index("gasDay")["value"].astype(float) / KWH_PER_GWH
+    st = st[~st.index.duplicated(keep="last")].dropna()
+    if st.empty:
+        return {}
+    end = st.index.max()
+    window = _day_index(end - timedelta(days=364), end)
+    ly = st.reindex(window - pd.DateOffset(years=1))
+    return {"t": _ms(window), "gwh": _arr(st.reindex(window), 0), "gwh_last_year": _arr(ly.values, 0),
+            "latest": {"gas_day": end.date().isoformat(), "gwh": _r(st[end], 0),
+                       "d7_gwh": _r(st[end] - st.get(end - pd.Timedelta(days=7)), 0)
+                       if pd.notna(st.get(end - pd.Timedelta(days=7))) else None},
+            "note": "Total gas in GB storage sites as published by National Gas (energy, so no fill %: National Gas "
+                    "doesn't publish the capacity alongside it). GB stopped reporting to GIE AGSI+ after 2020."}
 
 
 def hdd(t: pd.Series) -> pd.Series:

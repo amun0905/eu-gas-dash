@@ -55,6 +55,14 @@
       <p class="src">Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0)</p>
     </article>
 
+    <article class="card span-12" id="card-gb">
+      <div class="card-head"><h2>United Kingdom: gas in storage</h2><span class="unit"><span data-u="G">GWh</span> · this year vs last year</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart short" id="c-gb"></div><div class="table-wrap"></div>
+      <p class="note" id="gb-note"></p>
+      <p class="src">Source: National Gas Transmission, Data Portal</p>
+    </article>
+
     <article class="card span-12" id="card-table">
       <div class="card-head"><h2>Latest by storage area</h2><span class="unit">AGSI+ · status E = estimated, C = confirmed</span></div>
       <div class="table-wrap always" id="t-latest"></div>
@@ -273,7 +281,21 @@
     chart("c-ssite").setOption(o2, true);
     fillTable("#card-ssite", seriesTable(t, [{ name: "This year %", data: st.full }, { name: "Last year %", data: st.full_last_year }]));
   }
-  function draw() { kpis(); season(); countries(); net(); hdd(); }
+  function gbStock() {
+    const G = DATA.gb_stock || {};
+    if (!G.t) { document.getElementById("card-gb").style.display = "none"; return; }
+    document.getElementById("gb-note").textContent = `${G.note || ""} Latest: gas day ${G.latest.gas_day}, ` +
+      `${GD.nf(G.latest.gwh, 0, "gb")} ${GD.uG()} (7-day change ${sf(G.latest.d7_gwh, 0, "gb")}).`;
+    const o = base({});
+    o.yAxis.min = 0;
+    o.tooltip.formatter = axisTooltip(GD.uG, 0);
+    const now = ca(G.gwh, "gb"), ly = ca(G.gwh_last_year, "gb");
+    o.series = [line("This year", pairs(G.t, now), slot(0)), line("Same date last year", pairs(G.t, ly), slot(1))];
+    chart("c-gb").setOption(o, true);
+    fillTable("#card-gb", seriesTable(G.t, [{ name: `This year ${GD.uG()}`, data: now }, { name: `Last year ${GD.uG()}`, data: ly }], GD.dp(0)));
+  }
+
+  function draw() { kpis(); season(); countries(); net(); hdd(); gbStock(); }
 
   GD.boot("index.html", "storage", (data) => {
     DATA = data;

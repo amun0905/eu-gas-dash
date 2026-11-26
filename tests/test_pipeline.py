@@ -124,6 +124,8 @@ def test_exports(api, gie_key, store):
     eu = st["series"]["EU"]["full_seasonal"]
     assert len(eu["md"]) == 366 and eu["band_years"]
     assert st["weather"]["hdd"]
+    gb = st["gb_stock"]
+    assert len(gb["t"]) == 365 and gb["latest"]["gwh"] > 0     # 1e10 kWh -> 10,000 GWh in the fake
 
 
 def test_flow_net_sign():
