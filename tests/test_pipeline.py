@@ -297,3 +297,18 @@ def test_weather_runs_change(api, store):
     de = wm["series"]["DE"]
     assert de["chg_hres"][i] == -2.0 and de["chg_ens"][i] == -2.0
     assert de["prev_hres"][i] is not None and de["chg_hres"][0] is None     # past days: no change
+
+
+def test_weather_skips_when_no_new_run(api, store):
+    import fakes
+    from gasdash.sources import ecmwf
+    forecast_calls = lambda: sum(1 for c in api.calls if c.request.url.startswith(ecmwf.FORECAST_URL))
+    main(["--store", store.url, "update", "weather_country", "weather_runs"])
+    n = forecast_calls()
+    assert n >= 1
+    ecmwf._forecast_cache.clear()
+    main(["--store", store.url, "update", "weather_country", "weather_runs"])      # same ECMWF runs: skipped
+    assert forecast_calls() == n
+    fakes.FAKE_RUN.update(hours=6); ecmwf._forecast_cache.clear()
+    main(["--store", store.url, "update", "weather_country", "weather_runs"])      # new run: fetched once, shared
+    assert forecast_calls() == n + 1

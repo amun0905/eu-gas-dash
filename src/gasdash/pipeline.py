@@ -53,6 +53,10 @@ def update(spec: DatasetSpec, store: Store, client=None, now: datetime | None = 
     """Bring a dataset up to date, re-fetching `lookback_days` to capture revisions."""
     client = client or get_client(spec.source)
     now = now or utcnow()
+    # Optional per-source shortcut: skip when the source has nothing new (e.g. no new ECMWF model run yet).
+    if hasattr(client, "needs_update") and not client.needs_update(spec, store):
+        log.info("%s: nothing new upstream, skipped", spec.name)
+        return {"incoming": 0, "inserted": 0, "updated_or_same": 0, "skipped": True}
     latest = store.latest_time(spec)
     if latest is None:
         start = max(now - timedelta(days=BOOTSTRAP_DAYS),
@@ -63,6 +67,8 @@ def update(spec: DatasetSpec, store: Store, client=None, now: datetime | None = 
     end = now + timedelta(days=spec.horizon_days)
     stats = _ingest(spec, store, client, start, end)
     store.write_manifest(spec, attribution(spec.source))
+    if hasattr(client, "mark_updated"):
+        client.mark_updated(spec, store)
     log.info("%s: %s", spec.name, stats)
     return stats
 
