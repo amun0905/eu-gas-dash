@@ -17,6 +17,7 @@ run it came from (Open-Meteo's model metadata), and never overwritten by later r
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import time
@@ -205,6 +206,39 @@ class EcmwfClient:
         if r.status_code >= 400:
             raise RuntimeError(f"Open-Meteo metadata for {model} -> {r.status_code}")
         return pd.Timestamp(int(r.json()["last_run_initialisation_time"]), unit="s", tz="UTC")
+
+    # ------------------------------------------------------------ skip updates when ECMWF has no new run
+
+    @staticmethod
+    def _state_path(spec: DatasetSpec, store) -> str:
+        return f"{store.root}/reference/ecmwf_last_runs_{spec.name}.json"
+
+    def _current_runs(self) -> dict:
+        return {"hres": self.run_init(HRES_MODEL).isoformat(), "ens": self.run_init(ENS_META_MODEL).isoformat(),
+                "day": datetime.now(timezone.utc).date().isoformat()}
+
+    def needs_update(self, spec: DatasetSpec, store) -> bool:
+        """False when neither the HRES nor the ENS run has changed since this dataset's last update (same UTC day,
+        so ERA5 history still moves on daily). Fails open: any problem means 'update'."""
+        try:
+            path = self._state_path(spec, store)
+            if not store.fs.exists(path):
+                return True
+            with store.fs.open(path, "rb") as f:
+                last = json.loads(f.read())
+            self._pending = self._current_runs()
+            return self._pending != last
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s: couldn't check for a new ECMWF run (%s); updating anyway", spec.name, e)
+            return True
+
+    def mark_updated(self, spec: DatasetSpec, store) -> None:
+        try:
+            state = getattr(self, "_pending", None) or self._current_runs()
+            store.write_json(self._state_path(spec, store), state)
+        except Exception as e:  # noqa: BLE001
+            log.warning("%s: couldn't record the ECMWF run (%s)", spec.name, e)
+        self._pending = None
 
     def runs(self, points: list[dict], today: pd.Timestamp) -> pd.DataFrame:
         hres_run, ens_run = self.run_init(HRES_MODEL), self.run_init(ENS_META_MODEL)
