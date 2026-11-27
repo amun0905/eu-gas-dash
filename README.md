@@ -53,11 +53,17 @@ Prices are deliberately left out (no free official API for TTF/THE).
 | `weather_country` | ECMWF via Open-Meteo | population-weighted country temperature: ERA5 history 2016→, HRES + 51-member ENS forecast | every update, ~15 days ahead |
 | `weather_runs` | ECMWF via Open-Meteo | the same country forecasts kept for every model run (never overwritten), for "vs previous run" | every update; compares 00z/12z runs |
 
-The Weather tab's country average is a weighted basket of each country's largest cities (`options.countries`
-in `config/datasets.yaml`; weights = approximate metro population). The normal is the last 10 complete
-years of ERA5 for each date, 15-day smoothed, so it needs the `weather_country` backfill once: run
-*Actions → backfill* with datasets `weather_country`. It paces itself to Open-Meteo's free hourly limit and
-takes about 3–4 hours; if it stops on a rate limit, run it again and it carries on where it left off.
+The Weather tab's country temperature is a population-weighted average of 3–6 sample points per country.
+The points and weights are in `config/weather_points.yaml`, generated from the EU's GHS-POP population grid
+by `scripts/build_weather_points.py` (`pip install ".[weights]"`, then run it; it downloads its inputs). The
+full method is on the site's Sources page. The normal is the last 10 complete years of ERA5 for each date,
+15-day smoothed, so it needs the `weather_country` backfill: run *Actions → backfill* with datasets
+`weather_country`. It paces itself to Open-Meteo's free hourly limit and takes about 3–4 hours; if it stops
+on a rate limit, run it again and it carries on where it left off.
+
+Stored weather rows are tagged with the version of the points that built them (`points_id`). After changing
+`weather_points.yaml`, run the same backfill: months built with the old points are rebuilt automatically,
+and until then the site ignores them rather than mixing old and new weights.
 
 ## Choosing ENTSOG points
 

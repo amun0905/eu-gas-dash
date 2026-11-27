@@ -312,3 +312,37 @@ def test_weather_skips_when_no_new_run(api, store):
     fakes.FAKE_RUN.update(hours=6); ecmwf._forecast_cache.clear()
     main(["--store", store.url, "update", "weather_country", "weather_runs"])      # new run: fetched once, shared
     assert forecast_calls() == n + 1
+
+
+def test_weather_points_change_rebuilds_history(api, store, tmp_path):
+    """Changing weather_points.yaml must not mix old and new weights: a plain backfill rebuilds old months,
+    resumes cleanly afterwards, and the export only uses rows built with the current points."""
+    import shutil
+    import yaml
+    from gasdash.export_weather import build_weather_map
+    from gasdash.registry import load_registry
+    start = datetime(datetime.now(UTC).year - 4, 1, 1).date().isoformat()
+    main(["--store", store.url, "backfill", "weather_country", "--start", start])
+    old_id = REG["weather_country"].options["points_id"]
+    assert set(store.read(REG["weather_country"])["points_id"]) == {old_id}
+
+    cfg = tmp_path / "config"
+    shutil.copytree("config", cfg)
+    pts = yaml.safe_load((cfg / "weather_points.yaml").read_text(encoding="utf-8"))
+    pts["countries"]["DE"][0]["pop"] += 1.0                       # any change to points or weights
+    (cfg / "weather_points.yaml").write_text(yaml.safe_dump(pts, allow_unicode=True), encoding="utf-8")
+    reg2 = load_registry(cfg / "datasets.yaml")
+    new_id = reg2["weather_country"].options["points_id"]
+    assert new_id != old_id
+
+    calls = lambda: sum(1 for c in api.calls if "archive" in c.request.url)
+    n0 = calls()
+    main(["--store", store.url, "--config", str(cfg / "datasets.yaml"), "backfill", "weather_country", "--start", start])
+    assert calls() > n0                                            # months were rebuilt, not skipped
+    df = store.read(reg2["weather_country"])
+    assert set(df.loc[df["is_forecast"] == 0, "points_id"]) == {new_id}
+    n1 = calls()
+    main(["--store", store.url, "--config", str(cfg / "datasets.yaml"), "backfill", "weather_country", "--start", start])
+    assert calls() - n1 <= 2                                       # resume: only the unsettled latest month(s)
+    wm = build_weather_map(store, reg2)
+    assert wm["countries"] and wm["countries"][0]["normal_years"] >= 3

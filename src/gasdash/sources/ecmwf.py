@@ -260,7 +260,7 @@ class EcmwfClient:
             log.info("%s: HRES run %s, ENS run %s, %d rows", spec.name, df.loc[df.model == "hres", "run"].max(),
                      df.loc[df.model == "ens", "run"].max(), len(df))
             if not df.empty:
-                yield df
+                yield df.assign(points_id=spec.options.get("points_id"))
             return
         start, end = _utc(start), _utc(end)
         archive_end = min(end.normalize() - pd.Timedelta(days=1), today - pd.Timedelta(days=ARCHIVE_LAG_DAYS))
@@ -272,7 +272,7 @@ class EcmwfClient:
             log.info("%s ERA5 %s..%s: %d rows", spec.name, a.date(), b.date(), len(df))
             if not df.empty:
                 df["fetched_at"] = run
-                yield df
+                yield df.assign(points_id=spec.options.get("points_id"))
             a = b + pd.Timedelta(days=1)
         if end > today - pd.Timedelta(days=ARCHIVE_LAG_DAYS):
             df = self.cached_forecast(points, today)
@@ -281,4 +281,4 @@ class EcmwfClient:
             log.info("%s ECMWF forecast: %d rows", spec.name, len(df))
             if not df.empty:
                 df["fetched_at"] = run
-                yield df
+                yield df.assign(points_id=spec.options.get("points_id"))

@@ -693,7 +693,25 @@ def build_sources(store: Store, registry: dict[str, DatasetSpec], now: datetime 
                      "updated_at": m.get("updated_at"), "stale": f.get("stale"),
                      "max_staleness_hours": spec.max_staleness_hours,
                      "configured": is_configured(spec.source)})
-    return {"datasets": rows, "sources": _sources("gie", "entsog", "nationalgas", "openmeteo", "ecmwf")}
+    return {"datasets": rows, "sources": _sources("gie", "entsog", "nationalgas", "openmeteo", "ecmwf"),
+            "weather_points": _weather_points(registry)}
+
+
+def _weather_points(registry: dict[str, DatasetSpec]) -> dict | None:
+    """The Weather tab's sample points and weights, straight from the config the pipeline uses (Sources page)."""
+    from .export_weather import NAMES
+    spec = registry.get("weather_country")
+    if spec is None or "countries" not in spec.options:
+        return None
+    meta = spec.options.get("points_meta", {})
+    countries = []
+    for iso, pts in spec.options["countries"].items():
+        total = float(sum(p["pop"] for p in pts))
+        countries.append({"iso": iso, "name": NAMES.get(iso, iso),
+                          "population_m": (meta.get("summary", {}).get(iso) or {}).get("population_m", round(total, 2)),
+                          "points": [{"name": p["name"], "lat": p["lat"], "lon": p["lon"], "pop_m": p["pop"],
+                                      "weight": round(p["pop"] / total, 4)} for p in pts]})
+    return {"points_id": spec.options.get("points_id"), "method": meta.get("method", {}), "countries": countries}
 
 
 def _writer(name, builder):

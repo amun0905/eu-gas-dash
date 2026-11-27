@@ -67,6 +67,8 @@ def run_changes(store: Store, registry: dict[str, DatasetSpec], window: pd.Datet
     if df.empty:
         return {}, {}
     df = df[df["run"].dt.hour.isin(MAIN_RUN_HOURS)]
+    if spec.options.get("points_id") and "points_id" in df:     # only compare runs built with today's points
+        df = df[df["points_id"] == spec.options["points_id"]]
     meta, out = {}, {}
     for model in ("hres", "ens"):
         m = df[df["model"] == model]
@@ -93,6 +95,8 @@ def build_weather_map(store: Store, registry: dict[str, DatasetSpec], now: datet
     today = pd.Timestamp(now).tz_convert("UTC").normalize()
     first_year = today.year - NORMAL_YEARS
     df = store.read(spec, pd.Timestamp(f"{first_year}-01-01", tz="UTC"), today + timedelta(days=20))
+    if spec.options.get("points_id") and "points_id" in df:     # ignore rows built with older sample points
+        df = df[df["points_id"] == spec.options["points_id"]]
     if df.empty:
         return base
     df = df.sort_values("day")
@@ -139,7 +143,8 @@ def build_weather_map(store: Store, registry: dict[str, DatasetSpec], now: datet
         "forecast_fetched_at": fetched.max() if not fetched.empty else None,
         "runs": run_meta,
         "normal_label": f"{yrs[0]}–{yrs[-1]} average" if yrs else None,
-        "note": "Country temperature = population-weighted average of each country's largest cities (daily mean, UTC days). "
+        "note": "Country temperature = population-weighted average of 3–6 sample points per country, weighted by "
+                "GHS-POP 2025 population (daily mean, UTC days). "
                 "Past days: ERA5 reanalysis. Forecast: ECMWF HRES (9 km); the band is the 10th–90th percentile of the "
                 "51-member ECMWF ensemble. Normal = average of the last complete years for the date, "
                 f"{NORMAL_SMOOTH_DAYS}-day smoothed.",

@@ -1,6 +1,8 @@
 """Load and validate the dataset registry (config/datasets.yaml)."""
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -75,6 +77,13 @@ def load_registry(path: str | Path | None = None) -> dict[str, DatasetSpec]:
     for name, cfg in (raw.get("datasets") or {}).items():
         cfg = dict(cfg)
         cfg["start"] = date.fromisoformat(str(cfg["start"]))
+        opts = cfg.get("options") or {}
+        if "points_file" in opts:   # sample points kept in their own generated file, next to datasets.yaml
+            pts = yaml.safe_load((path.parent / opts["points_file"]).read_text(encoding="utf-8"))
+            # points_id tags stored rows, so data built with different points/weights is never mixed
+            pid = hashlib.sha1(json.dumps(pts["countries"], sort_keys=True).encode()).hexdigest()[:10]
+            cfg["options"] = {**opts, "countries": pts["countries"], "points_id": pid,
+                              "points_meta": {"method": pts.get("method", {}), "summary": pts.get("summary", {})}}
         spec = DatasetSpec(name=name, **cfg)
         spec.validate()
         specs[name] = spec

@@ -80,7 +80,16 @@ def _month_looks_complete(spec, store, period, month_start, month_end, tolerance
     if rng is None:
         return False
     lo, hi = rng
-    return lo <= month_start + tolerance and hi >= month_end - tolerance - timedelta(hours=1)
+    if not (lo <= month_start + tolerance and hi >= month_end - tolerance - timedelta(hours=1)):
+        return False
+    # Datasets whose rows are tagged with the configuration that built them (weather sample points):
+    # a month built with an older configuration is not done, so a backfill rebuilds it.
+    pid = spec.options.get("points_id")
+    if pid:
+        df = store._read_part(spec, period)
+        if "points_id" not in df or (df["points_id"] != pid).any():
+            return False
+    return True
 
 
 def backfill(spec: DatasetSpec, store: Store, start: datetime, end: datetime | None = None,

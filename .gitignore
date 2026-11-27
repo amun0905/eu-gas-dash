@@ -7,3 +7,4 @@ data/
 .env
 entsoe_debug_*.json
 demo-data/
+ghs-data/
