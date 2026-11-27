@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>European Gas · Weather</title>
+<link rel="icon" href="data:,">
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="common.js"></script>
+<link rel="stylesheet" href="style.css">
+<style>
+  .chart.map { height: 560px; }
+  .ctrl { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0 4px; }
+  .ctrl input[type=range] { flex: 1; min-width: 180px; accent-color: var(--accent); }
+  .ctrl .when { font-weight: 620; font-size: 13.5px; min-width: 170px; }
+  .ctrl .tag { color: var(--text-muted); font-size: 12px; }
+  .stepbtn { border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
+             border-radius: 6px; padding: 2px 9px; font: inherit; font-size: 13px; cursor: pointer; }
+  #t-outlook tbody tr { cursor: pointer; }
+  #t-outlook tbody tr:hover td { background: var(--grid); }
+  #t-outlook tbody tr[aria-selected="true"] td { background: var(--grid); font-weight: 600; }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .seg.sm button { padding: 4px 10px; font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="banner" id="banner" role="alert"></div>
+<header>
+  <span class="meta" id="meta">Loading…</span>
+</header>
+
+<main>
+  <div class="filters">
+    <label>Period</label>
+    <div class="seg sm" role="group" aria-label="Period" id="g-period"><button data-v="day" aria-pressed="true">Day</button><button data-v="week" aria-pressed="false">Week</button></div>
+    <label>Show</label>
+    <div class="seg sm" role="group" aria-label="Measure" id="g-measure"><button data-v="anom" aria-pressed="true">vs normal</button><button data-v="temp" aria-pressed="false">Temperature</button><button data-v="chg" aria-pressed="false" title="Latest ECMWF 00z/12z run minus the one before (06z/18z runs only reach day 6, so they're skipped)">vs previous run</button></div>
+    <label>Forecast</label>
+    <div class="seg sm" role="group" aria-label="Forecast model" id="g-model" title="HRES: ECMWF's single high-resolution run. ENS mean: average of the 51 ensemble members, usually the better guide beyond about a week.">
+      <button data-v="hres" aria-pressed="true">ECMWF HRES</button><button data-v="ens" aria-pressed="false">ENS mean</button></div>
+  </div>
+  <section class="grid">
+    <article class="card span-7" id="card-map">
+      <div class="card-head"><h2 id="map-title">Temperature vs normal</h2><span class="unit" id="map-unit">°C · population-weighted country average</span></div>
+      <div class="ctrl">
+        <button class="stepbtn" id="prev" aria-label="Previous">‹</button>
+        <input type="range" id="slider" min="0" max="0" value="0" aria-label="Day or week">
+        <button class="stepbtn" id="next" aria-label="Next">›</button>
+        <span class="when" id="when"></span><span class="tag" id="when-tag"></span>
+      </div>
+      <div class="chart map" id="c-map"></div>
+      <p class="note" id="map-note">Click a country for its 15-day outlook. Outlined countries aren't covered yet.</p>
+      <p class="src">ECMWF forecasts &amp; ERA5 (CC BY 4.0) via <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a></p>
+    </article>
+
+    <article class="card span-5" id="card-outlook">
+      <div class="card-head"><h2>Outlook by country</h2><span class="unit" id="outlook-unit">°C vs normal</span></div>
+      <div class="table-wrap always" id="t-outlook"></div>
+      <p class="note">Week 1 = today and the next 6 days; week 2 = the 7 days after. Last 7 days are ERA5 actuals. Click a row for its chart.</p>
+    </article>
+
+    <article class="card span-12" id="card-detail">
+      <div class="card-head"><h2 id="detail-title">Country outlook</h2><span class="unit">°C · daily mean</span>
+        <span class="tools"><button data-toggle-table>Table</button></span></div>
+      <div class="chart" id="c-detail"></div><div class="table-wrap"></div>
+      <p class="note" id="detail-note"></p>
+      <p class="src">ECMWF forecasts &amp; ERA5 (CC BY 4.0) via <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a></p>
+    </article>
+  </section>
+</main>
+<footer id="footer"></footer>
+
+<script>
+(() => {
+  const { css, num, signed, esc, fmtDay, fmtDayY, fmtDT, base, line, pairs, chart, seg, table, seriesTable, fillTable } = GD;
+  const DAY = 864e5;
+  let D = null, sel = null, geoReady = null, idx = 0;
+  let period = "day", measure = "anom", model = "hres";
+  const fmtWd = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", weekday: "short", day: "2-digit", month: "short" });
+
+  // ---- data helpers ------------------------------------------------------------------------
+  const iToday = () => D.days.indexOf(D.today);
+  // value of a country on day i: actuals in the past, chosen model in the future
+  function val(iso, i) {
+    const s = D.series[iso]; if (!s) return null;
+    if (!s.fc[i]) return s.t[i];
+    return model === "ens" ? (s.ens_mean[i] ?? s.t[i]) : (s.hres[i] ?? s.t[i]);
+  }
+  const anom = (iso, i) => { const v = val(iso, i), n = D.series[iso]?.normal[i]; return v == null || n == null ? null : v - n; };
+  function meanOver(f, iso, ix) {
+    const v = ix.map((i) => f(iso, i));
+    return v.length && v.every((x) => x != null) ? v.reduce((a, b) => a + b, 0) / v.length : null;
+  }
+  // change vs previous main run (null for past days or before two runs are stored)
+  const chg = (iso, i) => D.series[iso]?.[`chg_${model}`]?.[i] ?? null;
+  const fmtRun = (iso) => { const d = new Date(iso); return `${String(d.getUTCHours()).padStart(2, "0")}z ${fmtDay.format(d)}`; };
+  const runPair = () => { const r = (D.runs || {})[model]; return r ? `${fmtRun(r.latest)} vs ${fmtRun(r.previous)}` : null; };
+  const modelName = () => (model === "ens" ? "ENS mean" : "HRES");
+  // what the map and table show, by the "Show" toggle
+  function M() {
+    if (measure === "chg") return { f: chg, fmt: (v) => signed(v, 1), unit: "°C vs previous run", title: "Change vs previous ECMWF run" };
+    if (measure === "temp") return { f: val, fmt: (v) => num(v, 1), unit: "°C, mean", title: "Mean temperature" };
+    return { f: anom, fmt: (v) => signed(v, 1), unit: "°C vs normal", title: "Temperature vs normal" };
+  }
+  const lastFc = () => { let k = D.days.length - 1; while (k > 0 && D.countries.every((c) => val(c.iso, k) == null)) k--; return k; };
+
+  // Steps the slider moves through: single days, or 7-day blocks.
+  function steps() {
+    const t0 = iToday(), end = lastFc();
+    if (period === "day") {
+      const out = [];
+      for (let i = measure === "chg" ? t0 : Math.max(0, t0 - 7); i <= end; i++) out.push({ ix: [i], label: fmtWd.format(D.days[i]), tag: i < t0 ? "actual" : i === t0 ? "today" : `D+${i - t0}` });
+      return out;
+    }
+    const blk = (a, b, label, tag) => {
+      const ix = []; for (let i = a; i <= Math.min(b, end); i++) if (i >= 0) ix.push(i);
+      return ix.length ? { ix, label: `${fmtDay.format(D.days[ix[0]])} – ${fmtDay.format(D.days[ix[ix.length - 1]])}`, tag: tag + (ix.length < 7 ? ` (${ix.length} days)` : "") } : null;
+    };
+    return [measure === "chg" ? null : blk(t0 - 7, t0 - 1, "", "last 7 days, actual"), blk(t0, t0 + 6, "", "week 1"), blk(t0 + 7, t0 + 13, "", "week 2")].filter(Boolean);
+  }
+  const defaultStep = (st) => period === "day" ? st.findIndex((s) => s.ix[0] === iToday()) : st.findIndex((s) => s.tag.startsWith("week 1"));
+
+  // ---- colour scales (diverging: blue = cold, neutral grey midpoint, red = warm) ------------------
+  function scale() {
+    const c = [css("--div-neg"), css("--div-mid"), css("--div-pos")];
+    if (measure === "chg") return { min: -3, max: 3, colors: c, fmt: (v) => signed(v, 1) };
+    return measure === "anom" ? { min: -5, max: 5, colors: c, fmt: (v) => signed(v, 1) } : { min: -10, max: 20, colors: c, fmt: (v) => num(v, 1) };
+  }
+  function lerp(a, b, t) {
+    const p = (h) => [1, 3, 5].map((k) => parseInt(h.slice(k, k + 2), 16));
+    const x = p(a), y = p(b);
+    return "#" + x.map((v, k) => Math.round(v + (y[k] - v) * t).toString(16).padStart(2, "0")).join("");
+  }
+  function colorFor(v) {
+    if (v == null) return css("--grid");
+    const s = scale(), mid = (s.min + s.max) / 2, t = Math.max(s.min, Math.min(s.max, v));
+    return t <= mid ? lerp(s.colors[0], s.colors[1], (t - s.min) / (mid - s.min)) : lerp(s.colors[1], s.colors[2], (t - mid) / (s.max - mid));
+  }
+
+  // ---- map -----------------------------------------------------------------------------------
+  async function ensureGeo() {
+    if (!geoReady) geoReady = fetch("europe.geo.json").then((r) => r.json()).then((g) => { echarts.registerMap("europe", g); return g; });
+    return geoReady;
+  }
+
+  async function drawMap() {
+    const geo = await ensureGeo();
+    const st = steps(); idx = Math.max(0, Math.min(idx, st.length - 1));
+    const s = st[idx], sc = scale();
+    const slider = document.getElementById("slider");
+    slider.max = st.length - 1; slider.value = idx;
+    document.getElementById("when").textContent = s.label;
+    document.getElementById("when-tag").textContent = s.tag + (measure === "chg" && runPair() ? ` · ${modelName()} ${runPair()}` : "");
+    document.getElementById("map-title").textContent = M().title;
+
+    const covered = new Set(D.countries.map((c) => c.iso));
+    const values = {};
+    D.countries.forEach((c) => { values[c.iso] = meanOver(M().f, c.iso, s.ix); });
+    const ink = css("--text-primary"), border = css("--surface-1"), muted = css("--text-muted");
+    const data = geo.features.map((f) => {
+      const iso = f.properties.name, v = covered.has(iso) ? values[iso] : null;
+      return { name: iso, value: v,
+               itemStyle: covered.has(iso) ? { areaColor: colorFor(v), borderColor: border } : { areaColor: border, borderColor: css("--border") },
+               label: { show: covered.has(iso) && v != null, formatter: () => sc.fmt(v), color: ink, fontSize: 11, fontWeight: 600,
+                        textBorderColor: border, textBorderWidth: 2 } };
+    });
+    const o = {
+      animation: false,
+      tooltip: { trigger: "item", backgroundColor: css("--surface-1"), borderColor: css("--border"), textStyle: { color: ink, fontSize: 12 }, confine: true,
+        formatter: (p) => {
+          const c = D.countries.find((x) => x.iso === p.name);
+          if (!c) return `<span style="color:${muted}">${esc(geo.features.find((f) => f.properties.name === p.name)?.properties.label || p.name)}: not covered</span>`;
+          const t = meanOver(val, c.iso, s.ix), a = meanOver(anom, c.iso, s.ix), n = meanOver((iso, i) => D.series[iso].normal[i], c.iso, s.ix);
+          const lo = meanOver((iso, i) => D.series[iso].fc[i] ? D.series[iso].ens_p10[i] : null, c.iso, s.ix);
+          const hi = meanOver((iso, i) => D.series[iso].fc[i] ? D.series[iso].ens_p90[i] : null, c.iso, s.ix);
+          const row = (k, v) => `<div style="display:flex;gap:14px;justify-content:space-between"><span>${k}</span><b>${v}</b></div>`;
+          return `<div style="min-width:190px"><div style="margin-bottom:4px"><b>${esc(c.name)}</b> <span style="color:${muted}">${esc(s.label)}</span></div>` +
+            row("Temperature", `${num(t, 1)} °C`) + row("Normal", `${num(n, 1)} °C`) + row("vs normal", `${signed(a, 1)} °C`) +
+            (meanOver(chg, c.iso, s.ix) != null ? row(`vs previous run`, `${signed(meanOver(chg, c.iso, s.ix), 1)} °C`) : "") +
+            (lo != null ? row("ENS 10–90%", `${num(lo, 1)} to ${num(hi, 1)} °C`) : "") + `</div>`;
+        } },
+      series: [{ type: "map", map: "europe", roam: false, aspectScale: 0.68, boundingCoords: [[-10.5, 61.5], [27, 35.5]],
+                 layoutCenter: ["50%", "50%"], layoutSize: "118%", selectedMode: false,
+                 itemStyle: { borderColor: border, borderWidth: 1 }, emphasis: { itemStyle: { areaColor: null, borderColor: ink, borderWidth: 1.5 }, label: { show: true } },
+                 data }],
+    };
+    const ch = chart("c-map");
+    ch.setOption(o, true);
+    ch.off("click");
+    ch.on("click", (p) => { if (covered.has(p.name)) select(p.name); });
+    drawLegend(sc);
+  }
+
+  function drawLegend(sc) {
+    const n = measure === "anom" ? 5 : 7, step = (sc.max - sc.min) / (n - 1);
+    const keys = Array.from({ length: n }, (_, k) => sc.min + k * step)
+      .map((v, k) => `<span class="key"><i style="background:${colorFor(v)}"></i>${k === 0 ? "≤ " : k === n - 1 ? "≥ " : ""}${sc.fmt(v)}</span>`).join("");
+    const extra = measure !== "chg" ? "" : runPair()
+      ? `<br>Blue = the latest ECMWF ${modelName()} run (${runPair()}) is colder than the one before; red = warmer.`
+      : "<br>Needs two ECMWF main runs (00z and 12z) to be stored; check back within about 12 hours of the first update.";
+    document.getElementById("map-note").innerHTML = `${keys}${extra}<br>Click a country for its 15-day outlook. Outlined countries aren't covered yet.`;
+  }
+
+  // ---- outlook table -------------------------------------------------------------------------
+  function outlook() {
+    const t0 = iToday(), rng = (a, b) => Array.from({ length: b - a + 1 }, (_, k) => a + k).filter((i) => i >= 0 && i < D.days.length);
+    const w0 = rng(t0 - 7, t0 - 1), w1 = rng(t0, t0 + 6), w2 = rng(t0 + 7, t0 + 13);
+    const { f, fmt } = M();
+    const cell = (v) => v == null ? "–" : `<span class="sw" style="background:${colorFor(v)}"></span>${fmt(v)}`;
+    const rows = D.countries.map((c) => ({ iso: c.iso, name: c.name, a: meanOver(f, c.iso, w0), b: meanOver(f, c.iso, w1), c: meanOver(f, c.iso, w2) }));
+    document.getElementById("outlook-unit").textContent = M().unit + (measure === "chg" && runPair() ? ` · ${modelName()} ${runPair()}` : "");
+    document.getElementById("t-outlook").innerHTML = table([
+      { label: "Country", key: "name", cls: "l" },
+      ...(measure === "chg" ? [] : [{ label: "Last 7 days", key: "a", html: (r) => cell(r.a) }]),
+      { label: "Week 1", key: "b", html: (r) => cell(r.b) },
+      { label: "Week 2", key: "c", html: (r) => cell(r.c) },
+    ], rows);
+    document.querySelectorAll("#t-outlook tbody tr").forEach((tr, k) => {
+      tr.setAttribute("aria-selected", String(rows[k].iso === sel));
+      tr.addEventListener("click", () => select(rows[k].iso));
+    });
+  }
+
+  // ---- country detail chart ------------------------------------------------------------------
+  function detail() {
+    const s = D.series[sel], c = D.countries.find((x) => x.iso === sel);
+    if (!s) return;
+    document.getElementById("detail-title").textContent = `${c.name}: temperature outlook`;
+    const t = D.days, past = s.t.map((v, i) => (s.fc[i] ? null : v));
+    // join the actual line to the first forecast day so there's no gap
+    const t0 = iToday(), hres = s.hres.map((v, i) => (s.fc[i] || i === t0 - 1 ? (s.fc[i] ? v : s.t[i]) : null));
+    const ensm = s.ens_mean.map((v, i) => (s.fc[i] ? v : null));
+    const lo = s.ens_p10.map((v, i) => (s.fc[i] ? v : null)), hi = s.ens_p90.map((v, i, a) => (s.fc[i] && v != null && lo[i] != null ? v - lo[i] : null));
+    const ink = css("--text-primary"), acc = css("--s1"), ref = css("--ref");
+    const o = base({ scale: true });
+    o.yAxis.axisLabel.formatter = (v) => `${v}°`;
+    const prev = s[`prev_${model}`], prevName = D.runs && D.runs[model] ? `${modelName()} ${fmtRun(D.runs[model].previous)} (previous run)` : null;
+    o.legend.data = ["Actual (ERA5)", "ECMWF HRES", "ENS mean", "ENS 10–90%", c.normal_years ? (D.normal_label || "Normal") : null, prev ? prevName : null].filter(Boolean);
+    o.tooltip.formatter = (ps) => {
+      if (!ps.length) return "";
+      const i = t.indexOf(ps[0].axisValue); if (i < 0) return "";
+      const row = (k, v) => v == null ? "" : `<div style="display:flex;gap:14px;justify-content:space-between"><span>${k}</span><b>${v}</b></div>`;
+      const a = s.normal[i] != null && (s.fc[i] ? s.hres[i] ?? s.t[i] : s.t[i]) != null ? (s.fc[i] ? s.hres[i] ?? s.t[i] : s.t[i]) - s.normal[i] : null;
+      return `<div style="min-width:190px"><div style="margin-bottom:4px;color:${css("--text-secondary")}">${fmtWd.format(t[i])}${s.fc[i] ? ` · D+${i - t0}` : ""}</div>` +
+        (s.fc[i] ? row("ECMWF HRES", `${num(s.hres[i], 1)} °C`) + row("ENS mean", `${num(s.ens_mean[i], 1)} °C`) +
+                   (lo[i] != null ? row("ENS 10–90%", `${num(lo[i], 1)} to ${num(s.ens_p90[i], 1)} °C`) : "")
+                 : row("Actual", `${num(s.t[i], 1)} °C`)) +
+        row("Normal", s.normal[i] == null ? null : `${num(s.normal[i], 1)} °C`) + row(s.fc[i] ? "HRES vs normal" : "vs normal", a == null ? null : `${signed(a, 1)} °C`) +
+        row(`${modelName()} vs previous run`, chg(sel, i) == null ? null : `${signed(chg(sel, i), 1)} °C`) + `</div>`;
+    };
+    o.series = [
+      { name: "band-lo", type: "line", stack: "ens", stackStrategy: "all", data: pairs(t, lo), showSymbol: false, lineStyle: { width: 0 }, silent: true, tooltip: { show: false } },
+      { name: "ENS 10–90%", type: "line", stack: "ens", stackStrategy: "all", data: pairs(t, hi), showSymbol: false, lineStyle: { width: 0 }, areaStyle: { color: css("--band"), opacity: 1 }, itemStyle: { color: css("--band") }, silent: true },
+      line(D.normal_label || "Normal", pairs(t, s.normal), ref, { lineStyle: { width: 1.5, type: "dashed", color: ref } }),
+      line("Actual (ERA5)", pairs(t, past), ink),
+      line("ECMWF HRES", pairs(t, hres), acc),
+      line("ENS mean", pairs(t, ensm), css("--s2"), { lineStyle: { width: 2, type: [6, 3], color: css("--s2") } }),
+    ];
+    o.series[2].name = D.normal_label || "Normal";
+    if (prev) o.series.push(line(prevName, pairs(t, prev), css("--text-muted"), { lineStyle: { width: 1.5, type: "dotted", color: css("--text-muted") }, z: 1 }));
+    o.series[3].markLine = { silent: true, symbol: "none", label: { formatter: "today", color: css("--text-muted"), fontSize: 11 },
+                             lineStyle: { color: css("--text-muted"), type: "dotted", width: 1 }, data: [{ xAxis: D.today }] };
+    if (!c.normal_years) o.series.splice(2, 1);
+    chart("c-detail").setOption(o, true);
+    fillTable("#card-detail", seriesTable(t, [{ name: "Actual", data: past }, { name: "HRES", data: s.hres.map((v, i) => s.fc[i] ? v : null) },
+      { name: "ENS mean", data: ensm }, { name: "ENS p10", data: lo }, { name: "ENS p90", data: s.ens_p90.map((v, i) => s.fc[i] ? v : null) },
+      { name: "Normal", data: s.normal }], 1).replace("Gas day", "Day"));
+    document.getElementById("detail-note").textContent = D.note + (c.normal_years ? ` Normal here: ${D.normal_label} (${c.normal_years} years).` : " Normal not available yet: the history backfill hasn't run.");
+  }
+
+  function select(iso) {
+    sel = iso;
+    try { localStorage.setItem("gasdash-wx-country", iso); } catch (e) { /* ignore */ }
+    outlook(); detail();
+    if (window.innerWidth < 1100) document.getElementById("card-detail").scrollIntoView({ behavior: "smooth" });
+  }
+
+  function renderAll() { drawMap(); outlook(); detail(); }
+
+  // ---- controls ------------------------------------------------------------------------------
+  seg("g-period", (v) => { period = v; idx = defaultStep(steps()); renderAll(); });
+  seg("g-measure", (v) => {
+    const keep = steps()[idx]?.ix[0]; measure = v;
+    const st = steps(), k = st.findIndex((x) => x.ix[0] === keep); idx = k >= 0 ? k : defaultStep(st); renderAll();
+  });
+  seg("g-model", (v) => { model = v; renderAll(); });
+  document.getElementById("slider").addEventListener("input", (e) => { idx = +e.target.value; drawMap(); });
+  document.getElementById("prev").addEventListener("click", () => { idx = Math.max(0, idx - 1); drawMap(); });
+  document.getElementById("next").addEventListener("click", () => { idx = Math.min(steps().length - 1, idx + 1); drawMap(); });
+
+  GD.boot("weather.html", "weather_map", (data) => {
+    const first = D == null;
+    D = data;
+    if (!D.countries || !D.countries.length) {
+      document.getElementById("c-map").innerHTML = '<p class="empty">No weather data yet. Run the weather_country backfill (Actions → backfill).</p>';
+      document.getElementById("meta").textContent = "Weather";
+      return;
+    }
+    if (first) {
+      let saved = null; try { saved = localStorage.getItem("gasdash-wx-country"); } catch (e) { /* ignore */ }
+      sel = D.series[saved] ? saved : (D.series.DE ? "DE" : D.countries[0].iso);
+      idx = defaultStep(steps());
+    }
+    const f = D.forecast_fetched_at ? fmtDT.format(new Date(D.forecast_fetched_at)) : "–";
+    const r = D.runs || {};
+    const runs = [r.hres ? `HRES ${fmtRun(r.hres.latest)}` : null, r.ens ? `ENS ${fmtRun(r.ens.latest)}` : null].filter(Boolean).join(", ");
+    document.getElementById("meta").textContent = `ECMWF forecast fetched ${f} (UK time)${runs ? ` · latest main runs: ${runs}` : ""} · ${D.countries.length} countries`;
+    renderAll();
+  });
+})();
+</script>
+<!-- Cloudflare Web Analytics --><script type='module' src='https://static.cloudflareinsights.com/beacon.min.js' data-cf-beacon='{"token": "4b0b6f02732541bab278f3424e3b0bf9"}'></script><!-- End Cloudflare Web Analytics -->
+</body>
+</html>

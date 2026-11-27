@@ -15,7 +15,7 @@ import pandas as pd
 import responses
 import yaml
 
-from gasdash.sources import entsog, gie, nationalgas, openmeteo
+from gasdash.sources import ecmwf, entsog, gie, nationalgas, openmeteo
 from gasdash.sources.entsog import find_points_file
 
 TODAY = datetime.now(timezone.utc).date()
@@ -180,6 +180,16 @@ def nationalgas_callback(request):
 
 
 # ---------------------------------------------------------------- Open-Meteo
+# ECMWF run currently "served" (hours after today 00 UTC) and a shift applied to forecasts, so tests can
+# simulate a new model run that is colder or warmer than the previous one.
+FAKE_RUN = {"hours": -12, "shift": 0.0}
+
+
+def openmeteo_meta_callback(request):
+    t0 = datetime.combine(TODAY, datetime.min.time()).replace(tzinfo=timezone.utc) + timedelta(hours=FAKE_RUN["hours"])
+    return 200, {}, json.dumps({"last_run_initialisation_time": int(t0.timestamp()), "update_interval_seconds": 21600})
+
+
 def openmeteo_callback(request):
     q = _q(request)
     n = len(q["latitude"].split(","))
@@ -187,9 +197,18 @@ def openmeteo_callback(request):
         days = list(_days(q["start_date"], q["end_date"]))
     else:
         days = [TODAY + timedelta(days=k) for k in range(-int(q["past_days"]), int(q["forecast_days"]))]
-    bodies = [{"daily": {"time": [d.isoformat() for d in days],
-                         "temperature_2m_mean": [8 - 10 * math.cos((d.timetuple().tm_yday - 15) / 365 * 2 * math.pi) + j
-                                                 for d in days]}} for j in range(n)]
+    shift = FAKE_RUN["shift"] if "start_date" not in q else 0.0
+
+    def temp(d, j, m=0):
+        return round(8 - 10 * math.cos((d.timetuple().tm_yday - 15) / 365 * 2 * math.pi) + j * 0.1 + m + shift, 2)
+
+    bodies = []
+    for j in range(n):
+        daily = {"time": [d.isoformat() for d in days], "temperature_2m_mean": [temp(d, j) for d in days]}
+        if "ensemble" in request.url:   # control + 50 perturbed members
+            for m in range(1, 51):
+                daily[f"temperature_2m_mean_member{m:02d}"] = [temp(d, j, (m - 25) / 10) for d in days]
+        bodies.append({"daily": daily})
     return 200, {}, json.dumps(bodies if n > 1 else bodies[0])
 
 
@@ -230,3 +249,6 @@ def install(rsps: responses.RequestsMock) -> None:
     rsps.add_callback(responses.POST, nationalgas.JSON_URL, callback=nationalgas_callback)
     rsps.add_callback(responses.GET, openmeteo.ARCHIVE_URL, callback=openmeteo_callback)
     rsps.add_callback(responses.GET, openmeteo.FORECAST_URL, callback=openmeteo_callback)
+    rsps.add_callback(responses.GET, ecmwf.ENSEMBLE_URL, callback=openmeteo_callback)
+    rsps.add_callback(responses.GET, re.compile(r"https://api\.open-meteo\.com/data/.*/static/meta\.json"),
+                      callback=openmeteo_meta_callback)

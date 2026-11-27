@@ -2,7 +2,7 @@
 # Adding a dataset is (usually) just a new block here.
 #
 # Fields
-#   source        client that fetches it: gie | entsog | nationalgas | openmeteo
+#   source        client that fetches it: gie | entsog | nationalgas | openmeteo | ecmwf
 #   query         window   -> the client is asked for [start, end) and splits it itself
 #   time_column   UTC timestamp used for monthly partitions and incremental updates
 #                 (daily data uses the gas day / day at 00:00 UTC)
@@ -334,3 +334,120 @@ datasets:
       country: str
       tmean: float
       is_forecast: int
+
+  # ============================================================ ECMWF : country temperature forecasts (Weather tab)
+  # Population-weighted city baskets per country. `pop` is an approximate metro population in millions;
+  # only the ratios matter (weights are normalised per country). Add a country = add a block here.
+  # A first backfill fetches ~10 years of ERA5 history for the normals. It paces itself to stay inside
+  # Open-Meteo's free hourly limit (takes a few hours) and resumes where it stopped if interrupted.
+  weather_country:
+    description: ECMWF temperature forecast (HRES + 51-member ENS) and ERA5 history, population-weighted by country
+    source: ecmwf
+    query: window
+    time_column: day
+    keys: [day, country]
+    chunk_days: 31
+    lookback_days: 25          # >= forecast days + ERA5 lag, so ERA5 replaces forecast rows once available
+    horizon_days: 16
+    start: "2016-01-01"
+    max_staleness_hours: 48
+    options:
+      countries: &wx_countries
+        GB:
+          - {name: London, lat: 51.51, lon: -0.13, pop: 9.6}
+          - {name: Birmingham, lat: 52.48, lon: -1.90, pop: 2.9}
+          - {name: Manchester, lat: 53.48, lon: -2.24, pop: 2.8}
+          - {name: Leeds, lat: 53.80, lon: -1.55, pop: 1.9}
+          - {name: Glasgow, lat: 55.86, lon: -4.25, pop: 1.8}
+        IE:
+          - {name: Dublin, lat: 53.35, lon: -6.26, pop: 1.5}
+          - {name: Cork, lat: 51.90, lon: -8.47, pop: 0.3}
+          - {name: Galway, lat: 53.27, lon: -9.05, pop: 0.1}
+        FR:
+          - {name: Paris, lat: 48.86, lon: 2.35, pop: 12.3}
+          - {name: Lyon, lat: 45.76, lon: 4.84, pop: 2.3}
+          - {name: Marseille, lat: 43.30, lon: 5.37, pop: 1.9}
+          - {name: Lille, lat: 50.63, lon: 3.06, pop: 1.5}
+          - {name: Toulouse, lat: 43.60, lon: 1.44, pop: 1.4}
+        BE:
+          - {name: Brussels, lat: 50.85, lon: 4.35, pop: 2.1}
+          - {name: Antwerp, lat: 51.22, lon: 4.40, pop: 1.1}
+          - {name: Liege, lat: 50.63, lon: 5.57, pop: 0.6}
+        NL:
+          - {name: Amsterdam, lat: 52.37, lon: 4.90, pop: 2.5}
+          - {name: Rotterdam, lat: 51.92, lon: 4.48, pop: 1.8}
+          - {name: Eindhoven, lat: 51.44, lon: 5.47, pop: 0.8}
+          - {name: Groningen, lat: 53.22, lon: 6.57, pop: 0.4}
+        DE:
+          - {name: Ruhr (Essen), lat: 51.46, lon: 7.01, pop: 5.0}
+          - {name: Cologne/Duesseldorf, lat: 51.10, lon: 6.90, pop: 5.0}
+          - {name: Berlin, lat: 52.52, lon: 13.41, pop: 4.7}
+          - {name: Hamburg, lat: 53.55, lon: 9.99, pop: 3.0}
+          - {name: Munich, lat: 48.14, lon: 11.58, pop: 2.9}
+          - {name: Frankfurt, lat: 50.11, lon: 8.68, pop: 2.6}
+        DK:
+          - {name: Copenhagen, lat: 55.68, lon: 12.57, pop: 2.1}
+          - {name: Aarhus, lat: 56.16, lon: 10.20, pop: 0.4}
+          - {name: Aalborg, lat: 57.05, lon: 9.92, pop: 0.2}
+        PL:
+          - {name: Warsaw, lat: 52.23, lon: 21.01, pop: 3.1}
+          - {name: Katowice, lat: 50.26, lon: 19.02, pop: 2.7}
+          - {name: Krakow, lat: 50.06, lon: 19.94, pop: 1.5}
+          - {name: Gdansk, lat: 54.35, lon: 18.65, pop: 1.1}
+        CZ:
+          - {name: Prague, lat: 50.08, lon: 14.44, pop: 2.7}
+          - {name: Ostrava, lat: 49.82, lon: 18.26, pop: 1.1}
+          - {name: Brno, lat: 49.20, lon: 16.61, pop: 0.7}
+        AT:
+          - {name: Vienna, lat: 48.21, lon: 16.37, pop: 2.9}
+          - {name: Graz, lat: 47.07, lon: 15.44, pop: 0.6}
+          - {name: Linz, lat: 48.31, lon: 14.29, pop: 0.5}
+        HU:
+          - {name: Budapest, lat: 47.50, lon: 19.04, pop: 3.0}
+          - {name: Debrecen, lat: 47.53, lon: 21.63, pop: 0.2}
+          - {name: Szeged, lat: 46.25, lon: 20.15, pop: 0.2}
+        IT:
+          - {name: Milan, lat: 45.46, lon: 9.19, pop: 4.3}
+          - {name: Rome, lat: 41.90, lon: 12.50, pop: 4.3}
+          - {name: Naples, lat: 40.85, lon: 14.27, pop: 3.1}
+          - {name: Turin, lat: 45.07, lon: 7.69, pop: 2.2}
+          - {name: Venice/Padua, lat: 45.44, lon: 12.00, pop: 1.5}
+        ES:
+          - {name: Madrid, lat: 40.42, lon: -3.70, pop: 6.8}
+          - {name: Barcelona, lat: 41.39, lon: 2.17, pop: 5.6}
+          - {name: Valencia, lat: 39.47, lon: -0.38, pop: 1.9}
+          - {name: Seville, lat: 37.39, lon: -5.98, pop: 1.5}
+    columns:
+      day: datetime
+      country: str
+      tmean: float
+      hres: float
+      ens_mean: float
+      ens_p10: float
+      ens_p90: float
+      is_forecast: int
+      fetched_at: str
+
+  # Every ECMWF run as it arrives, never overwritten, for the "vs previous run" view on the Weather tab.
+  # Same countries and cities as weather_country (YAML anchor), and the same forecast download.
+  weather_runs:
+    description: ECMWF forecast by country for each model run (HRES and ENS), for run-to-run changes
+    source: ecmwf
+    query: window
+    time_column: run
+    keys: [run, model, day, country]
+    chunk_days: 31
+    lookback_days: 1
+    start: "2026-11-01"
+    max_staleness_hours: 30        # newest run older than this -> something is wrong upstream
+    options:
+      mode: runs
+      countries: *wx_countries
+    columns:
+      run: datetime
+      model: str
+      day: datetime
+      country: str
+      t: float
+      p10: float
+      p90: float

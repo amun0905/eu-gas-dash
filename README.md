@@ -26,6 +26,7 @@ files that a static website (GitHub Pages) reads.
 | Flows | Norway landings (incl. Langeled into GB), Russian routes (TurkStream), other pipeline imports, flows to Ukraine, key interconnectors, GB NTS supply & demand | ENTSOG, National Gas |
 | Events | Active and planned unavailability messages, capacity-offline timeline | ENTSOG UMMs, GIE IIP |
 | Auctions | Capacity auctions that cleared with a premium | ENTSOG CMP data |
+| Weather | Map of country temperatures vs normal or vs the previous ECMWF run (by day or week, ~15 days ahead), outlook table, per-country chart with the ensemble range | ECMWF HRES/ENS + ERA5 via Open-Meteo |
 | Sources | Every source, its terms, and how fresh each dataset is | all |
 
 A **GWh | mcm** toggle in the header switches Storage, LNG, Flows and Events between energy and volume.
@@ -49,6 +50,14 @@ Prices are deliberately left out (no free official API for TTF/THE).
 | `entsog_cmp_auctions` | ENTSOG | CMP auction premiums | sparse |
 | `gb_nts` | National Gas | GB NTS supply by source, demand, storage stock | daily, D+1 |
 | `weather_temp` | Open-Meteo | daily mean temperature, 8 cities (→ HDD) | daily + 9-day forecast |
+| `weather_country` | ECMWF via Open-Meteo | population-weighted country temperature: ERA5 history 2016→, HRES + 51-member ENS forecast | every update, ~15 days ahead |
+| `weather_runs` | ECMWF via Open-Meteo | the same country forecasts kept for every model run (never overwritten), for "vs previous run" | every update; compares 00z/12z runs |
+
+The Weather tab's country average is a weighted basket of each country's largest cities (`options.countries`
+in `config/datasets.yaml`; weights = approximate metro population). The normal is the last 10 complete
+years of ERA5 for each date, 15-day smoothed, so it needs the `weather_country` backfill once: run
+*Actions → backfill* with datasets `weather_country`. It paces itself to Open-Meteo's free hourly limit and
+takes about 3–4 hours; if it stops on a rate limit, run it again and it carries on where it left off.
 
 ## Choosing ENTSOG points
 
@@ -109,5 +118,6 @@ gasdash update && gasdash export   # into ./data
 - GIE AGSI+/ALSI/IIP: free reuse with a visible "GIE (Gas Infrastructure Europe), AGSI/ALSI" credit.
 - ENTSOG Transparency Platform, National Gas Data Portal: public transparency data.
 - Open-Meteo: CC BY 4.0, free for non-commercial use.
+- ECMWF open data (HRES, ENS, ERA5): CC BY 4.0, credited on the Weather tab.
 
 Check each source's terms before any commercial use.

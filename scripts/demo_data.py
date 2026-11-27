@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 os.environ.setdefault("GIE_API_KEY", "test-key")
 os.environ["GIE_MIN_INTERVAL_S"] = "0"
+os.environ["OPENMETEO_PACE"] = "0"
 
 import fakes  # noqa: E402
 from gasdash.cli import main  # noqa: E402
@@ -24,7 +25,7 @@ store = str(ROOT / "demo-data")
 start = (datetime.now(timezone.utc) - timedelta(days=365 * 7)).date().isoformat()
 with responses.RequestsMock(assert_all_requests_are_fired=False) as rsps:
     fakes.install(rsps)
-    main(["--store", store, "backfill", "agsi_storage", "alsi_lng", "weather_temp", "--start", start])
+    main(["--store", store, "backfill", "agsi_storage", "alsi_lng", "weather_temp", "weather_country", "--start", start])
     main(["--store", store, "backfill", "entsog_flows", "gb_nts", "--start",
           (datetime.now(timezone.utc) - timedelta(days=420)).date().isoformat()])
     main(["--store", store, "update"])

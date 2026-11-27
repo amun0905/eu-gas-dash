@@ -693,7 +693,7 @@ def build_sources(store: Store, registry: dict[str, DatasetSpec], now: datetime 
                      "updated_at": m.get("updated_at"), "stale": f.get("stale"),
                      "max_staleness_hours": spec.max_staleness_hours,
                      "configured": is_configured(spec.source)})
-    return {"datasets": rows, "sources": _sources("gie", "entsog", "nationalgas", "openmeteo")}
+    return {"datasets": rows, "sources": _sources("gie", "entsog", "nationalgas", "openmeteo", "ecmwf")}
 
 
 def _writer(name, builder):
@@ -713,3 +713,13 @@ EXPORTS = {
     "storage_sites": export_storage_sites,
     "sources": _writer("sources", build_sources),
 }
+
+
+def _weather_map(store, registry, now=None):
+    from .export_weather import build_weather_map
+    data = build_weather_map(store, registry, now)
+    _write(store, "weather_map", data)
+    return data
+
+
+EXPORTS["weather_map"] = _weather_map

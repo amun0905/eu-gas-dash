@@ -23,7 +23,7 @@ def store(tmp_path):
 
 def test_registry_valid():
     assert {"agsi_storage", "alsi_lng", "entsog_flows", "entsog_umm", "entsog_cmp_auctions", "gb_nts",
-            "weather_temp", "gie_umm"} <= set(REG)
+            "weather_temp", "gie_umm", "weather_country"} <= set(REG)
 
 
 def test_gas_day_conversion():
@@ -254,3 +254,46 @@ def test_entity_that_stopped_reporting_is_left_out(api, gie_key, store):
     main(["--store", store.url, "backfill", "agsi_storage", "--start", "2025-01-01"])
     codes = {r["code"] for r in build_storage(store, REG)["latest"]}
     assert "DE" not in codes and "EU" in codes          # DE's last day is Feb 2025 -> dropped
+
+
+def test_weather_map(api, store):
+    from gasdash.export_weather import build_weather_map
+    from gasdash.sources.ecmwf import points_from_options
+    pts = points_from_options(REG["weather_country"].options)
+    for iso in {p["country"] for p in pts}:
+        assert abs(sum(p["w"] for p in pts if p["country"] == iso) - 1) < 1e-9
+    start = datetime(datetime.now(UTC).year - 4, 1, 1).date().isoformat()
+    main(["--store", store.url, "backfill", "weather_country", "--start", start])
+    main(["--store", store.url, "update", "weather_country"])
+    assert main(["--store", store.url, "export"]) == 0
+    wm = build_weather_map(store, REG)
+    assert [c["iso"] for c in wm["countries"]][:2] == ["GB", "IE"]
+    de = wm["series"]["DE"]
+    n = len(wm["days"])
+    assert all(len(v) == n for v in de.values())
+    i_today = wm["days"].index(wm["today"])
+    assert de["fc"][i_today] == 1 and de["fc"][0] == 0
+    assert de["normal"][i_today] is not None                       # >= 3 complete years of history
+    assert de["ens_p10"][i_today + 3] < de["ens_mean"][i_today + 3] < de["ens_p90"][i_today + 3]
+    assert abs(de["t"][i_today + 3] - de["normal"][i_today + 3]) < 3  # fake weather is seasonal
+    assert wm["normal_label"].endswith("average")
+
+
+def test_weather_runs_change(api, store):
+    import fakes
+    from gasdash.export_weather import build_weather_map
+    from gasdash.sources import ecmwf
+    main(["--store", store.url, "update", "weather_country", "weather_runs"])      # yesterday's 12z run
+    fakes.FAKE_RUN.update(hours=6, shift=0.0); ecmwf._forecast_cache.clear()
+    main(["--store", store.url, "update", "weather_runs"])                         # 06z: stored, not compared
+    fakes.FAKE_RUN.update(hours=0, shift=-2.0); ecmwf._forecast_cache.clear()
+    main(["--store", store.url, "update", "weather_runs"])                         # today's 00z, 2 C colder
+    runs = store.read(REG["weather_runs"])
+    assert runs["run"].nunique() == 3 and set(runs["model"]) == {"hres", "ens"}
+    wm = build_weather_map(store, REG)
+    assert wm["runs"]["hres"]["latest"].startswith(datetime.now(UTC).date().isoformat() + "T00:00")
+    assert wm["runs"]["hres"]["previous"].endswith("12:00:00+00:00")
+    i = wm["days"].index(wm["today"]) + 2
+    de = wm["series"]["DE"]
+    assert de["chg_hres"][i] == -2.0 and de["chg_ens"][i] == -2.0
+    assert de["prev_hres"][i] is not None and de["chg_hres"][0] is None     # past days: no change

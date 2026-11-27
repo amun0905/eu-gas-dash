@@ -23,7 +23,7 @@
   let rerender = null;
 
   const PAGES = [["index.html", "Storage"], ["lng.html", "LNG"], ["flows.html", "Flows"],
-                 ["events.html", "Events"], ["auctions.html", "Auctions"], ["sources.html", "Sources"]];
+                 ["events.html", "Events"], ["auctions.html", "Auctions"], ["weather.html", "Weather"], ["sources.html", "Sources"]];
 
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   // Categorical slots in fixed order (validated palette); colour follows the entity, never its rank.
@@ -41,7 +41,7 @@
     const nav = PAGES.map(([href, name]) => `<a href="${href}${location.search}"${href === active ? ' aria-current="page"' : ""}>${name}</a>`).join("");
     const el = document.querySelector("header");
     el.insertAdjacentHTML("afterbegin", `<h1>European Gas</h1><nav class="tabs" aria-label="Pages">${nav}</nav>`);
-    if (!["auctions.html", "sources.html"].includes(active)) {
+    if (!["auctions.html", "sources.html", "weather.html"].includes(active)) {
       el.insertAdjacentHTML("beforeend", `<div class="seg" role="group" aria-label="Units" id="unit-toggle" title="Volumes use ${KWH_PER_M3.eu} kWh/m³ (GB: National Gas published volumes)">
         <button data-v="energy" aria-pressed="${!VOL}">GWh</button><button data-v="volume" aria-pressed="${VOL}">mcm</button></div>`);
       document.getElementById("unit-toggle").addEventListener("click", (e) => {

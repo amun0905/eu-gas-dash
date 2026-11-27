@@ -24,6 +24,9 @@ def get_client(source: str):
     if source == "openmeteo":
         from .openmeteo import OpenMeteoClient
         return OpenMeteoClient()
+    if source == "ecmwf":
+        from .ecmwf import EcmwfClient
+        return EcmwfClient()
     raise ValueError(f"No client implemented for source '{source}'")
 
 
@@ -39,6 +42,7 @@ ATTRIBUTIONS = {
     "entsog": "Source: ENTSOG Transparency Platform",
     "nationalgas": "Source: National Gas Transmission, Data Portal",
     "openmeteo": "Weather data by Open-Meteo.com (CC BY 4.0)",
+    "ecmwf": "ECMWF HRES/ENS forecasts and ERA5 (CC BY 4.0), via Open-Meteo.com",
 }
 
 SOURCE_LINKS = {
@@ -46,6 +50,7 @@ SOURCE_LINKS = {
     "entsog": "https://transparency.entsog.eu/",
     "nationalgas": "https://data.nationalgas.com/",
     "openmeteo": "https://open-meteo.com/",
+    "ecmwf": "https://www.ecmwf.int/en/forecasts/datasets/open-data",
 }
 
 
